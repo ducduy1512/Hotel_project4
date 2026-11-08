@@ -294,7 +294,7 @@ class Cust_Win:
         content = self.Cust_Details_Table.item(cursor_row)
         row = content["values"]
 
-        if row:  # tránh lỗi khi click vào chỗ trống
+        if row:
             self.var_ref.set(row[0])
             self.var_cust_name.set(row[1])
             self.var_mother.set(row[2])
@@ -385,7 +385,6 @@ class Cust_Win:
         self.var_id_number.set("")
         self.var_address.set("")
 
-        # Tạo lại số Ref mới
         x = random.randint(1000, 9999)
         self.var_ref.set(str(x))
 
