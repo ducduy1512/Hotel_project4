@@ -1,212 +1,281 @@
+
 from tkinter import *
-from PIL import Image, ImageTk
 from tkinter import ttk
-from tkinter import messagebox
-import os
-import mysql.connector
 from datetime import datetime
+import mysql.connector
 
 
 class Roombooking:
     def __init__(self, root):
         self.root = root
-        self.root.title("Hotel Management System")
-        self.root.geometry("1295x550+230+220")
 
-        # ================== Variables ==================
+        # ================= VARIABLES =================
         self.var_contact = StringVar()
         self.var_checkin = StringVar()
         self.var_checkout = StringVar()
-        self.var_roomtype = StringVar()
+        self.var_roomtype = StringVar(value="Single")
         self.var_roomavailable = StringVar()
-        self.var_meal = StringVar()
-        self.var_noofdays = StringVar()
-        self.var_paidtax = StringVar()
-        self.var_actualtotal = StringVar()
-        self.var_total = StringVar()
+        self.var_meal = StringVar(value="Breakfast")
+        self.var_noofdays = StringVar(value="1")
+        self.var_paidtax = StringVar(value="0")
+        self.var_actualtotal = StringVar(value="0")
+        self.var_total = StringVar(value="0")
 
-        self.search_var = StringVar()
-        self.txt_search = StringVar()
+        self.var_search = StringVar()
+        self.var_search_by = StringVar(value="Contact")
 
-        # ================== Title ==================
-        lbl_title = Label(self.root, text="ROOM BOOKING DETAILS",
-                          font=("times new roman", 18, "bold"),
-                          bg="black", fg="gold", bd=4, relief=RIDGE)
-        lbl_title.place(x=0, y=0, width=1295, height=50)
+        # ================= TITLE =================
+        Label(
+            root,
+            text="ROOM BOOKING DETAILS",
+            font=("Times New Roman", 18, "bold"),
+            bg="black",
+            fg="gold"
+        ).place(x=0, y=0, width=1310, height=45)
 
-        # ================== Logo ==================
-        base_path = os.path.dirname(os.path.abspath(__file__))
-        img_path = os.path.join(base_path, "images")
+        # ================= LEFT FORM =================
+        form = LabelFrame(
+            root,
+            text="Booking Information",
+            font=("Arial", 11, "bold"),
+            bd=2,
+            relief=RIDGE
+        )
+        form.place(x=10, y=55, width=390, height=480)
 
-        try:
-            img2 = Image.open(os.path.join(img_path, "logohotel.png"))
-            img2 = img2.resize((100, 40), Image.LANCZOS)
-            self.photoimg2 = ImageTk.PhotoImage(img2)
+        # Contact
+        Label(form, text="Contact", font=("Arial", 10, "bold")).grid(
+            row=0, column=0, sticky="w", padx=7, pady=5
+        )
 
-            lblimg = Label(self.root, image=self.photoimg2, bd=0, relief=RIDGE)
-            lblimg.place(x=5, y=2, width=100, height=40)
-        except:
-            pass
+        ttk.Entry(form, textvariable=self.var_contact, width=20).grid(
+            row=0, column=1, padx=5, pady=5
+        )
 
-        # ================== LabelFrame Left ==================
-        labelframeleft = LabelFrame(self.root, bd=2, relief=RIDGE, text="Room Booking Details",
-                                    font=("times new roman", 12, "bold"), padx=2)
-        labelframeleft.place(x=5, y=50, width=425, height=490)
+        # Check In
+        Label(form, text="Check In", font=("Arial", 10, "bold")).grid(
+            row=1, column=0, sticky="w", padx=7, pady=5
+        )
 
-        # Customer Contact
-        lbl_cust_contact = Label(labelframeleft, text="Customer Contact", font=("arial", 12, "bold"), padx=2, pady=6)
-        lbl_cust_contact.grid(row=0, column=0, sticky=W)
+        ttk.Entry(form, textvariable=self.var_checkin, width=20).grid(
+            row=1, column=1, padx=5, pady=5
+        )
 
-        enty_contact = ttk.Entry(labelframeleft, textvariable=self.var_contact,
-                                 font=("arial", 13, "bold"), width=20)
-        enty_contact.grid(row=0, column=1, sticky=W)
+        # Check Out
+        Label(form, text="Check Out", font=("Arial", 10, "bold")).grid(
+            row=2, column=0, sticky="w", padx=7, pady=5
+        )
 
-        btnFetchData = Button(labelframeleft, command=self.Fetch_contact, text="Fetch Data",
-                              font=("arial", 8, "bold"), bg="black", fg="gold", width=9)
-        btnFetchData.place(x=347, y=4)
-
-        # Check_in Date
-        check_in_date = Label(labelframeleft, font=("arial", 12, "bold"), text="Check_in Date:", padx=2, pady=6)
-        check_in_date.grid(row=1, column=0, sticky=W)
-        txtcheck_in_date = ttk.Entry(labelframeleft, textvariable=self.var_checkin,
-                                     font=("arial", 13, "bold"), width=29)
-        txtcheck_in_date.grid(row=1, column=1)
-
-        # Check_out Date
-        lbl_Check_out = Label(labelframeleft, font=("arial", 12, "bold"), text="Check_Out Date:", padx=2, pady=6)
-        lbl_Check_out.grid(row=2, column=0, sticky=W)
-        txt_Check_out = ttk.Entry(labelframeleft, textvariable=self.var_checkout,
-                                  font=("arial", 13, "bold"), width=29)
-        txt_Check_out.grid(row=2, column=1)
+        ttk.Entry(form, textvariable=self.var_checkout, width=20).grid(
+            row=2, column=1, padx=5, pady=5
+        )
 
         # Room Type
-        label_RoomType = Label(labelframeleft, font=("arial", 12, "bold"), text="Room Type:", padx=2, pady=6)
-        label_RoomType.grid(row=3, column=0, sticky=W)
+        Label(form, text="Room Type", font=("Arial", 10, "bold")).grid(
+            row=3, column=0, sticky="w", padx=7, pady=5
+        )
 
-        combo_RoomType = ttk.Combobox(labelframeleft, textvariable=self.var_roomtype,
-                                      font=("arial", 12, "bold"), width=27, state="readonly")
-        combo_RoomType["value"] = ("Single", "Double", "Luxury")
-        combo_RoomType.current(0)
-        combo_RoomType.grid(row=3, column=1)
+        self.combo_roomtype = ttk.Combobox(
+            form,
+            textvariable=self.var_roomtype,
+            state="readonly",
+            width=18
+        )
+        self.combo_roomtype.grid(row=3, column=1, padx=5, pady=5)
 
-        # Available Room
-        lblRoomAvailable = Label(labelframeleft, font=("arial", 12, "bold"), text="Available Room:", padx=2, pady=6)
-        lblRoomAvailable.grid(row=4, column=0, sticky=W)
-        txtRoomAvailable = ttk.Entry(labelframeleft, textvariable=self.var_roomavailable,
-                                     font=("arial", 13, "bold"), width=29)
-        txtRoomAvailable.grid(row=4, column=1)
+        self.combo_roomtype.bind(
+            "<<ComboboxSelected>>",
+            self.load_room_numbers
+        )
+
+        # Room No
+        Label(form, text="Room No", font=("Arial", 10, "bold")).grid(
+            row=4, column=0, sticky="w", padx=7, pady=5
+        )
+
+        self.combo_roomno = ttk.Combobox(
+            form,
+            textvariable=self.var_roomavailable,
+            width=18
+        )
+        self.combo_roomno.grid(row=4, column=1, padx=5, pady=5)
 
         # Meal
-        lblMeal = Label(labelframeleft, font=("arial", 12, "bold"), text="Meal:", padx=2, pady=6)
-        lblMeal.grid(row=5, column=0, sticky=W)
-        txtMeal = ttk.Entry(labelframeleft, textvariable=self.var_meal,
-                            font=("arial", 13, "bold"), width=29)
-        txtMeal.grid(row=5, column=1)
+        Label(form, text="Meal", font=("Arial", 10, "bold")).grid(
+            row=5, column=0, sticky="w", padx=7, pady=5
+        )
 
-        # No Of Days
-        lblNoOfDays = Label(labelframeleft, font=("arial", 12, "bold"), text="No Of Days:", padx=2, pady=6)
-        lblNoOfDays.grid(row=6, column=0, sticky=W)
-        txtNoOfDays = ttk.Entry(labelframeleft, textvariable=self.var_noofdays,
-                                font=("arial", 13, "bold"), width=29)
-        txtNoOfDays.grid(row=6, column=1)
+        ttk.Combobox(
+            form,
+            textvariable=self.var_meal,
+            values=("Breakfast", "Lunch", "Dinner"),
+            width=18
+        ).grid(row=5, column=1, padx=5, pady=5)
 
-        # Paid Tax
-        lblPaidTax = Label(labelframeleft, font=("arial", 12, "bold"), text="Paid Tax:", padx=2, pady=6)
-        lblPaidTax.grid(row=7, column=0, sticky=W)
-        txtPaidTax = ttk.Entry(labelframeleft, textvariable=self.var_paidtax,
-                               font=("arial", 13, "bold"), width=29)
-        txtPaidTax.grid(row=7, column=1)
+        # Number of Days
+        Label(form, text="No. of Days", font=("Arial", 10, "bold")).grid(
+            row=6, column=0, sticky="w", padx=7, pady=5
+        )
 
-        # Sub Total
-        lblSubTotal = Label(labelframeleft, font=("arial", 12, "bold"), text="Sub Total:", padx=2, pady=6)
-        lblSubTotal.grid(row=8, column=0, sticky=W)
-        txtSubTotal = ttk.Entry(labelframeleft, textvariable=self.var_actualtotal,
-                                font=("arial", 13, "bold"), width=29)
-        txtSubTotal.grid(row=8, column=1)
+        ttk.Entry(
+            form,
+            textvariable=self.var_noofdays,
+            width=20
+        ).grid(row=6, column=1, padx=5, pady=5)
 
-        # Total Cost
-        lblTotal = Label(labelframeleft, font=("arial", 12, "bold"), text="Total Cost:", padx=2, pady=6)
-        lblTotal.grid(row=9, column=0, sticky=W)
-        txtTotal = ttk.Entry(labelframeleft, textvariable=self.var_total,
-                             font=("arial", 13, "bold"), width=29)
-        txtTotal.grid(row=9, column=1)
+        # Tax
+        Label(form, text="Tax", font=("Arial", 10, "bold")).grid(
+            row=7, column=0, sticky="w", padx=7, pady=5
+        )
 
-        # Bill Button
-        btnBill = Button(labelframeleft, text="Bill", command=self.total,
-                         font=("arial", 11, "bold"), bg="black", fg="gold", width=10)
-        btnBill.grid(row=10, column=0, padx=1, sticky=W)
+        ttk.Entry(
+            form,
+            textvariable=self.var_paidtax,
+            width=20,
+            state="readonly"
+        ).grid(row=7, column=1, padx=5, pady=5)
 
-        # ================== Buttons ==================
-        btn_frame = Frame(labelframeleft, bd=2, relief=RIDGE)
-        btn_frame.place(x=0, y=400, width=412, height=40)
+        # Subtotal
+        Label(form, text="Subtotal", font=("Arial", 10, "bold")).grid(
+            row=8, column=0, sticky="w", padx=7, pady=5
+        )
 
-        btnAdd = Button(btn_frame, text="Add", command=self.add_data,
-                        font=("arial", 11, "bold"), bg="black", fg="gold", width=10)
-        btnAdd.grid(row=0, column=0, padx=1)
+        ttk.Entry(
+            form,
+            textvariable=self.var_actualtotal,
+            width=20,
+            state="readonly"
+        ).grid(row=8, column=1, padx=5, pady=5)
 
-        btnUpdate = Button(btn_frame, text="Update", command=self.update,
-                           font=("arial", 11, "bold"), bg="black", fg="gold", width=10)
-        btnUpdate.grid(row=0, column=1, padx=1)
+        # Total
+        Label(form, text="Total", font=("Arial", 10, "bold")).grid(
+            row=9, column=0, sticky="w", padx=7, pady=5
+        )
 
-        btnDelete = Button(btn_frame, text="Delete", command=self.mDelete,
-                           font=("arial", 11, "bold"), bg="black", fg="gold", width=10)
-        btnDelete.grid(row=0, column=2, padx=1)
+        ttk.Entry(
+            form,
+            textvariable=self.var_total,
+            width=20,
+            state="readonly"
+        ).grid(row=9, column=1, padx=5, pady=5)
 
-        btnReset = Button(btn_frame, text="Reset", command=self.reset,
-                          font=("arial", 11, "bold"), bg="black", fg="gold", width=10)
-        btnReset.grid(row=0, column=3, padx=1)
+        # ================= BUTTONS =================
+        Button(
+            form,
+            text="Calculate",
+            command=self.total,
+            bg="black",
+            fg="gold",
+            font=("Arial", 9, "bold")
+        ).place(x=10, y=400, width=85, height=30)
 
-        # ================== Right side image ==================
-        try:
-            img3 = Image.open(os.path.join(img_path, "bedroom1.jpg"))
-            img3 = img3.resize((520, 200), Image.LANCZOS)
-            self.photoimg3 = ImageTk.PhotoImage(img3)
+        Button(
+            form,
+            text="Fetch Customer",
+            command=self.fetch_contact,
+            bg="black",
+            fg="gold",
+            font=("Arial", 9, "bold")
+        ).place(x=105, y=400, width=120, height=30)
 
-            lblimg3 = Label(self.root, image=self.photoimg3, bd=0, relief=RIDGE)
-            lblimg3.place(x=760, y=55, width=520, height=200)
-        except:
-            pass
+        Button(
+            form,
+            text="Add",
+            command=self.add_data,
+            bg="black",
+            fg="gold",
+            font=("Arial", 9, "bold")
+        ).place(x=235, y=400, width=65, height=30)
 
-        # ================== Table Frame ==================
-        Table_Frame = LabelFrame(self.root, bd=2, relief=RIDGE,
-                                 text="View Details And Search System",
-                                 font=("arial", 12, "bold"))
-        Table_Frame.place(x=435, y=280, width=860, height=260)
+        Button(
+            form,
+            text="Update",
+            command=self.update,
+            bg="black",
+            fg="gold",
+            font=("Arial", 9, "bold")
+        ).place(x=305, y=400, width=70, height=30)
 
-        lblSearchBy = Label(Table_Frame, font=("arial", 12, "bold"),
-                            text="Search By:", bg="red", fg="white")
-        lblSearchBy.grid(row=0, column=0, sticky=W, padx=2)
+        Button(
+            form,
+            text="Delete",
+            command=self.delete_data,
+            bg="black",
+            fg="gold",
+            font=("Arial", 9, "bold")
+        ).place(x=10, y=435, width=85, height=30)
 
-        self.combo_Search = ttk.Combobox(Table_Frame, textvariable=self.search_var,
-                                         font=("arial", 12, "bold"), width=24, state="readonly")
-        self.combo_Search["value"] = ("Contact", "Room")
-        self.combo_Search.current(0)
-        self.combo_Search.grid(row=0, column=1, padx=2)
+        Button(
+            form,
+            text="Reset",
+            command=self.reset,
+            bg="black",
+            fg="gold",
+            font=("Arial", 9, "bold")
+        ).place(x=105, y=435, width=85, height=30)
 
-        self.txtSearch = ttk.Entry(Table_Frame, textvariable=self.txt_search,
-                                   font=("arial", 13, "bold"), width=24)
-        self.txtSearch.grid(row=0, column=2, padx=2)
+        # ================= RIGHT FRAME =================
+        right_frame = Frame(root, bd=2, relief=RIDGE)
+        right_frame.place(x=410, y=55, width=890, height=480)
 
-        btnSearch = Button(Table_Frame, text="Search", command=self.search,
-                           font=("arial", 11, "bold"), bg="black", fg="gold", width=10)
-        btnSearch.grid(row=0, column=3, padx=1)
+        # ================= SEARCH =================
+        search_frame = LabelFrame(
+            right_frame,
+            text="Search Booking",
+            font=("Arial", 10, "bold")
+        )
+        search_frame.pack(fill=X, padx=5, pady=5)
 
-        btnShowAll = Button(Table_Frame, text="Show All", command=self.fetch_data,
-                            font=("arial", 11, "bold"), bg="black", fg="gold", width=10)
-        btnShowAll.grid(row=0, column=4, padx=1)
+        ttk.Combobox(
+            search_frame,
+            textvariable=self.var_search_by,
+            values=("Contact", "Room"),
+            state="readonly",
+            width=12
+        ).grid(row=0, column=0, padx=5, pady=5)
 
-        # ================== Show data Table ==================
-        details_table = Frame(Table_Frame, bd=2, relief=RIDGE)
-        details_table.place(x=0, y=50, width=860, height=180)
+        ttk.Entry(
+            search_frame,
+            textvariable=self.var_search,
+            width=25
+        ).grid(row=0, column=1, padx=5)
 
-        scroll_x = ttk.Scrollbar(details_table, orient=HORIZONTAL)
-        scroll_y = ttk.Scrollbar(details_table, orient=VERTICAL)
+        Button(
+            search_frame,
+            text="Search",
+            command=self.search_data
+        ).grid(row=0, column=2, padx=5)
 
-        self.room_table = ttk.Treeview(details_table,
-                                       columns=("contact", "checkin", "checkout", "roomtype",
-                                                "roomavailable", "meal", "noOfdays"),
-                                       xscrollcommand=scroll_x.set,
-                                       yscrollcommand=scroll_y.set)
+        Button(
+            search_frame,
+            text="Show All",
+            command=self.fetch_data
+        ).grid(row=0, column=3, padx=5)
+
+        # ================= TABLE =================
+        table_frame = Frame(right_frame)
+        table_frame.pack(fill=BOTH, expand=True, padx=5, pady=5)
+
+        scroll_x = ttk.Scrollbar(table_frame, orient=HORIZONTAL)
+        scroll_y = ttk.Scrollbar(table_frame, orient=VERTICAL)
+
+        columns = (
+            "contact",
+            "checkin",
+            "checkout",
+            "roomtype",
+            "roomavailable",
+            "meal",
+            "noofdays"
+        )
+
+        self.room_table = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            xscrollcommand=scroll_x.set,
+            yscrollcommand=scroll_y.set
+        )
 
         scroll_x.pack(side=BOTTOM, fill=X)
         scroll_y.pack(side=RIGHT, fill=Y)
@@ -214,155 +283,339 @@ class Roombooking:
         scroll_x.config(command=self.room_table.xview)
         scroll_y.config(command=self.room_table.yview)
 
-        self.room_table.heading("contact", text="Contact")
-        self.room_table.heading("checkin", text="Check-in")
-        self.room_table.heading("checkout", text="Check-out")
-        self.room_table.heading("roomtype", text="Room Type")
-        self.room_table.heading("roomavailable", text="Room No")
-        self.room_table.heading("meal", text="Meal")
-        self.room_table.heading("noOfdays", text="NoOfDays")
+        headings = (
+            "Contact",
+            "Check In",
+            "Check Out",
+            "Room Type",
+            "Room No",
+            "Meal",
+            "Days"
+        )
 
-        self.room_table["show"] = "headings"
+        for col, heading in zip(columns, headings):
+            self.room_table.heading(col, text=heading)
+            self.room_table.column(col, width=110)
 
-        for col in ("contact", "checkin", "checkout", "roomtype", "roomavailable", "meal", "noOfdays"):
-            self.room_table.column(col, width=100)
+        self.room_table.pack(fill=BOTH, expand=True)
 
-        self.room_table.pack(fill=BOTH, expand=1)
-        self.room_table.bind("<ButtonRelease-1>", self.get_cursor)
+        self.room_table.bind(
+            "<ButtonRelease-1>",
+            self.get_cursor
+        )
 
+        # ================= STATUS =================
+        self.lbl_status = Label(
+            root,
+            text="",
+            font=("Arial", 10, "bold"),
+            fg="green"
+        )
+
+        self.lbl_status.place(
+            x=10, y=560, width=1280, height=25
+        )
+
+        # ================= LOAD DATA =================
+        self.load_room_types()
         self.fetch_data()
 
-    # ================== Functions ==================
+    # ================= DATABASE =================
+    def connect_db(self):
+        return mysql.connector.connect(
+            host="localhost",
+            username="root",
+            password="dinomtp16",
+            database="management"
+        )
 
-    def Fetch_contact(self):
-        if self.var_contact.get() == "":
-            messagebox.showerror("Error", "Please enter Contact Number", parent=self.root)
+    # ================= STATUS =================
+    def status(self, text, color="green"):
+        self.lbl_status.config(
+            text=text,
+            fg=color
+        )
+
+    # ================= LOAD ROOM TYPE =================
+    def load_room_types(self):
+        try:
+            conn = self.connect_db()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT DISTINCT RoomType FROM details"
+            )
+
+            room_types = [row[0] for row in cursor.fetchall()]
+
+            cursor.close()
+            conn.close()
+
+            if room_types:
+                self.combo_roomtype["values"] = room_types
+                self.var_roomtype.set(room_types[0])
+
+            self.load_room_numbers()
+
+        except Exception as e:
+            self.combo_roomtype["values"] = (
+                "Single", "Double", "Luxury"
+            )
+            self.status(
+                f"Cannot load room types: {e}",
+                "red"
+            )
+
+    # ================= LOAD ROOM NUMBERS =================
+    def load_room_numbers(self, event=None):
+        try:
+            conn = self.connect_db()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT RoomNo FROM details WHERE RoomType=%s",
+                (self.var_roomtype.get(),)
+            )
+
+            rooms = [row[0] for row in cursor.fetchall()]
+
+            cursor.close()
+            conn.close()
+
+            self.combo_roomno["values"] = rooms
+
+            if rooms:
+                self.var_roomavailable.set(rooms[0])
+            else:
+                self.var_roomavailable.set("")
+
+        except Exception as e:
+            self.status(
+                f"Cannot load room numbers: {e}",
+                "red"
+            )
+
+    # ================= FETCH CUSTOMER =================
+    def fetch_contact(self):
+        contact = self.var_contact.get().strip()
+
+        if not contact:
+            self.status(
+                "Please enter customer mobile!",
+                "red"
+            )
             return
 
         try:
-            conn = mysql.connector.connect(
-                host="localhost",
-                username="root",
-                password="dinomtp16",
-                database="management"
+            conn = self.connect_db()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT Name, Gender, Email, Nationality, Address
+                FROM customer
+                WHERE Mobile=%s
+                """,
+                (contact,)
             )
-            my_cursor = conn.cursor()
-            query = "SELECT Name, Gender, Email, Nationality, Address FROM customer WHERE Mobile=%s"
-            value = (self.var_contact.get(),)
-            my_cursor.execute(query, value)
-            row = my_cursor.fetchone()
 
-            if row is None:
-                messagebox.showerror("Error", "This number Not Found", parent=self.root)
-            else:
-                showDataframe = Frame(self.root, bd=4, relief=RIDGE, padx=2)
-                showDataframe.place(x=455, y=55, width=300, height=180)
+            row = cursor.fetchone()
 
-                Label(showDataframe, text="Name:", font=("arial", 12, "bold")).place(x=0, y=0)
-                Label(showDataframe, text=row[0], font=("arial", 12, "bold")).place(x=90, y=0)
-
-                Label(showDataframe, text="Gender:", font=("arial", 12, "bold")).place(x=0, y=30)
-                Label(showDataframe, text=row[1], font=("arial", 12, "bold")).place(x=90, y=30)
-
-                Label(showDataframe, text="Email:", font=("arial", 12, "bold")).place(x=0, y=60)
-                Label(showDataframe, text=row[2], font=("arial", 12, "bold")).place(x=90, y=60)
-
-                Label(showDataframe, text="Nationality:", font=("arial", 12, "bold")).place(x=0, y=90)
-                Label(showDataframe, text=row[3], font=("arial", 12, "bold")).place(x=90, y=90)
-
-                Label(showDataframe, text="Address:", font=("arial", 12, "bold")).place(x=0, y=120)
-                Label(showDataframe, text=row[4], font=("arial", 12, "bold")).place(x=90, y=120)
-
+            cursor.close()
             conn.close()
-        except Exception as es:
-            messagebox.showerror("Error", f"Error:\n{str(es)}", parent=self.root)
 
+            if row:
+                self.status(
+                    f"Customer: {row[0]} | {row[1]} | {row[2]} | "
+                    f"{row[3]} | {row[4]}"
+                )
+            else:
+                self.status(
+                    "Customer not found!",
+                    "red"
+                )
+
+        except Exception as e:
+            self.status(
+                f"Fetch error: {e}",
+                "red"
+            )
+
+    # ================= CALCULATE TOTAL =================
     def total(self):
         try:
-            inDate = datetime.strptime(self.var_checkin.get(), "%d/%m/%Y")
-            outDate = datetime.strptime(self.var_checkout.get(), "%d/%m/%Y")
-            self.var_noofdays.set(abs((outDate - inDate).days))
+            checkin = datetime.strptime(
+                self.var_checkin.get(),
+                "%d/%m/%Y"
+            )
 
-            if self.var_meal.get() == "BreakFast" and self.var_roomtype.get() == "Single":
-                q1 = float(300)
-                q2 = float(700)
-            elif self.var_meal.get() == "Lunch" and self.var_roomtype.get() == "Double":
-                q1 = float(300)
-                q2 = float(1200)
+            checkout = datetime.strptime(
+                self.var_checkout.get(),
+                "%d/%m/%Y"
+            )
+
+            days = (checkout - checkin).days
+
+            if days <= 0:
+                self.status(
+                    "Check-out must be after Check-in!",
+                    "red"
+                )
+                return False
+
+            self.var_noofdays.set(str(days))
+
+            room_type = self.var_roomtype.get()
+            meal = self.var_meal.get().lower()
+
+            # Room price
+            if room_type == "Single":
+                room_rate = 700
+            elif room_type == "Double":
+                room_rate = 1200
             else:
-                q1 = float(200)
-                q2 = float(1000)
+                room_rate = 1000
 
-            q3 = float(self.var_noofdays.get())
-            q4 = float(q1 + q2)
-            q5 = float(q3 * q4)
+            # Meal price
+            if "breakfast" in meal:
+                meal_rate = 300
+            elif "lunch" in meal:
+                meal_rate = 300
+            else:
+                meal_rate = 200
 
-            Tax = "Rs." + str("%.2f" % (q5 * 0.1))
-            ST = "Rs." + str("%.2f" % q5)
-            TT = "Rs." + str("%.2f" % (q5 + (q5 * 0.1)))
+            subtotal = days * (room_rate + meal_rate)
 
-            self.var_paidtax.set(Tax)
-            self.var_actualtotal.set(ST)
-            self.var_total.set(TT)
+            tax = subtotal * 0.10
 
-        except Exception as es:
-            messagebox.showerror("Error", f"Please enter correct Date format (dd/mm/yyyy)\n{str(es)}", parent=self.root)
+            total = subtotal + tax
 
+            self.var_actualtotal.set(
+                f"{subtotal:.0f}"
+            )
+
+            self.var_paidtax.set(
+                f"{tax:.0f}"
+            )
+
+            self.var_total.set(
+                f"{total:.0f}"
+            )
+
+            self.status(
+                "Bill calculated successfully!"
+            )
+
+            return True
+
+        except ValueError:
+            self.status(
+                "Date format must be dd/mm/yyyy!",
+                "red"
+            )
+            return False
+
+    # ================= ADD BOOKING =================
     def add_data(self):
-        if self.var_contact.get() == "" or self.var_checkin.get() == "":
-            messagebox.showerror("Error", "All fields are required", parent=self.root)
-        else:
-            try:
-                conn = mysql.connector.connect(
-                    host="localhost",
-                    username="root",
-                    password="dinomtp16",
-                    database="management"
-                )
-                my_cursor = conn.cursor()
-                my_cursor.execute(
-                    "INSERT INTO room VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                    (
-                        self.var_contact.get(),
-                        self.var_checkin.get(),
-                        self.var_checkout.get(),
-                        self.var_roomtype.get(),
-                        self.var_roomavailable.get(),
-                        self.var_meal.get(),
-                        self.var_noofdays.get(),
-                    )
-                )
-                conn.commit()
-                self.fetch_data()
-                conn.close()
-                messagebox.showinfo("Success", "Room Booked successfully", parent=self.root)
-            except Exception as es:
-                messagebox.showerror("Error", f"Something went wrong:\n{str(es)}", parent=self.root)
+        if (
+            not self.var_contact.get().strip()
+            or not self.var_checkin.get().strip()
+            or not self.var_checkout.get().strip()
+            or not self.var_roomavailable.get().strip()
+        ):
+            self.status(
+                "Please fill all required fields!",
+                "red"
+            )
+            return
 
+        if not self.total():
+            return
+
+        try:
+            conn = self.connect_db()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                INSERT INTO room
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    self.var_contact.get(),
+                    self.var_checkin.get(),
+                    self.var_checkout.get(),
+                    self.var_roomtype.get(),
+                    self.var_roomavailable.get(),
+                    self.var_meal.get(),
+                    self.var_noofdays.get()
+                )
+            )
+
+            conn.commit()
+
+            cursor.close()
+            conn.close()
+
+            self.fetch_data()
+
+            self.status(
+                "Booking added successfully!"
+            )
+
+        except Exception as e:
+            self.status(
+                f"Database error: {e}",
+                "red"
+            )
+
+    # ================= FETCH DATA =================
     def fetch_data(self):
         try:
-            conn = mysql.connector.connect(
-                host="localhost",
-                username="root",
-                password="dinomtp16",
-                database="management"
+            conn = self.connect_db()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT * FROM room"
             )
-            my_cursor = conn.cursor()
-            my_cursor.execute("SELECT * FROM room")
-            rows = my_cursor.fetchall()
 
-            if len(rows) != 0:
-                self.room_table.delete(*self.room_table.get_children())
-                for row in rows:
-                    self.room_table.insert("", END, values=row)
+            rows = cursor.fetchall()
+
+            self.room_table.delete(
+                *self.room_table.get_children()
+            )
+
+            for row in rows:
+                self.room_table.insert(
+                    "",
+                    END,
+                    values=row
+                )
+
+            cursor.close()
             conn.close()
-        except Exception as es:
-            messagebox.showerror("Error", f"Cannot fetch data:\n{str(es)}", parent=self.root)
 
-    def get_cursor(self, event=""):
-        cursor_row = self.room_table.focus()
-        content = self.room_table.item(cursor_row)
-        row = content["values"]
+            self.status(
+                f"Loaded {len(rows)} booking(s)!"
+            )
+
+        except Exception as e:
+            self.status(
+                f"Cannot load bookings: {e}",
+                "red"
+            )
+
+    # ================= GET CURSOR =================
+    def get_cursor(self, event=None):
+        selected = self.room_table.focus()
+
+        if not selected:
+            return
+
+        row = self.room_table.item(
+            selected,
+            "values"
+        )
 
         if row:
             self.var_contact.set(row[0])
@@ -373,113 +626,152 @@ class Roombooking:
             self.var_meal.set(row[5])
             self.var_noofdays.set(row[6])
 
+    # ================= UPDATE BOOKING =================
     def update(self):
-        if self.var_contact.get() == "":
-            messagebox.showerror("Error", "Please enter contact number", parent=self.root)
-        else:
-            try:
-                conn = mysql.connector.connect(
-                    host="localhost",
-                    username="root",
-                    password="dinomtp16",
-                    database="management"
-                )
-                my_cursor = conn.cursor()
-                my_cursor.execute(
-                    """UPDATE room SET check_in=%s, check_out=%s, roomtype=%s, 
-                       roomavailable=%s, meal=%s, noOfdays=%s 
-                       WHERE Contact=%s""",
-                    (
-                        self.var_checkin.get(),
-                        self.var_checkout.get(),
-                        self.var_roomtype.get(),
-                        self.var_roomavailable.get(),
-                        self.var_meal.get(),
-                        self.var_noofdays.get(),
-                        self.var_contact.get(),
-                    )
-                )
-                conn.commit()
-                self.fetch_data()
-                conn.close()
-                messagebox.showinfo("Update", "Room details has been updated successfully", parent=self.root)
-            except Exception as es:
-                messagebox.showerror("Error", f"Something went wrong:\n{str(es)}", parent=self.root)
-
-    def mDelete(self):
-        if self.var_contact.get() == "":
-            messagebox.showerror("Error", "Please select a record to delete", parent=self.root)
+        if not self.var_contact.get().strip():
+            self.status(
+                "Select booking from table first!",
+                "red"
+            )
             return
 
-        mDelete = messagebox.askyesno("Hotel Management System",
-                                      "Do you really want to delete this room booking?", parent=self.root)
-        if mDelete:
-            try:
-                conn = mysql.connector.connect(
-                    host="localhost",
-                    username="root",
-                    password="dinomtp16",
-                    database="management"
-                )
-                my_cursor = conn.cursor()
-                query = "DELETE FROM room WHERE Contact=%s"
-                value = (self.var_contact.get(),)
-                my_cursor.execute(query, value)
-                conn.commit()
-                self.fetch_data()
-                conn.close()
-                messagebox.showinfo("Delete", "Room booking has been deleted successfully", parent=self.root)
-                self.reset()
-            except Exception as es:
-                messagebox.showerror("Error", f"Something went wrong:\n{str(es)}", parent=self.root)
+        if not self.total():
+            return
 
+        try:
+            conn = self.connect_db()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE room
+                SET CheckIn=%s,
+                    CheckOut=%s,
+                    RoomType=%s,
+                    Room=%s,
+                    Meal=%s,
+                    NoOfDays=%s
+                WHERE Contact=%s
+                """,
+                (
+                    self.var_checkin.get(),
+                    self.var_checkout.get(),
+                    self.var_roomtype.get(),
+                    self.var_roomavailable.get(),
+                    self.var_meal.get(),
+                    self.var_noofdays.get(),
+                    self.var_contact.get()
+                )
+            )
+
+            conn.commit()
+
+            cursor.close()
+            conn.close()
+
+            self.fetch_data()
+
+            self.status(
+                "Booking updated successfully!"
+            )
+
+        except Exception as e:
+            self.status(
+                f"Update error: {e}",
+                "red"
+            )
+
+    # ================= DELETE BOOKING =================
+    def delete_data(self):
+        if not self.var_contact.get().strip():
+            self.status(
+                "Select booking from table first!",
+                "red"
+            )
+            return
+
+        try:
+            conn = self.connect_db()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "DELETE FROM room WHERE Contact=%s",
+                (self.var_contact.get(),)
+            )
+
+            conn.commit()
+
+            cursor.close()
+            conn.close()
+
+            self.fetch_data()
+            self.reset()
+
+            self.status(
+                "Booking deleted successfully!"
+            )
+
+        except Exception as e:
+            self.status(
+                f"Delete error: {e}",
+                "red"
+            )
+
+    # ================= SEARCH BOOKING =================
+    def search_data(self):
+        keyword = self.var_search.get().strip()
+
+        if self.var_search_by.get() == "Contact":
+            field = "Contact"
+        else:
+            field = "Room"
+
+        try:
+            conn = self.connect_db()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                f"SELECT * FROM room WHERE {field} LIKE %s",
+                (f"%{keyword}%",)
+            )
+
+            rows = cursor.fetchall()
+
+            self.room_table.delete(
+                *self.room_table.get_children()
+            )
+
+            for row in rows:
+                self.room_table.insert(
+                    "",
+                    END,
+                    values=row
+                )
+
+            cursor.close()
+            conn.close()
+
+            self.status(
+                f"Found {len(rows)} booking(s)!"
+            )
+
+        except Exception as e:
+            self.status(
+                f"Search error: {e}",
+                "red"
+            )
+
+    # ================= RESET =================
     def reset(self):
         self.var_contact.set("")
         self.var_checkin.set("")
         self.var_checkout.set("")
         self.var_roomtype.set("Single")
         self.var_roomavailable.set("")
-        self.var_meal.set("")
-        self.var_noofdays.set("")
-        self.var_paidtax.set("")
-        self.var_actualtotal.set("")
-        self.var_total.set("")
+        self.var_meal.set("Breakfast")
+        self.var_noofdays.set("1")
+        self.var_paidtax.set("0")
+        self.var_actualtotal.set("0")
+        self.var_total.set("0")
 
-    def search(self):
-        try:
-            conn = mysql.connector.connect(
-                host="localhost",
-                username="root",
-                password="dinomtp16",
-                database="management"
-            )
-            my_cursor = conn.cursor()
-
-            search_by = self.search_var.get()
-            search_txt = self.txt_search.get()
-
-            if search_by == "Contact":
-                my_cursor.execute("SELECT * FROM room WHERE Contact LIKE %s", ('%' + search_txt + '%',))
-            elif search_by == "Room":
-                my_cursor.execute("SELECT * FROM room WHERE roomavailable LIKE %s", ('%' + search_txt + '%',))
-            else:
-                messagebox.showerror("Error", "Please select search type", parent=self.root)
-                return
-
-            rows = my_cursor.fetchall()
-            if len(rows) != 0:
-                self.room_table.delete(*self.room_table.get_children())
-                for row in rows:
-                    self.room_table.insert("", END, values=row)
-            else:
-                messagebox.showinfo("Info", "No record found", parent=self.root)
-
-            conn.close()
-        except Exception as es:
-            messagebox.showerror("Error", f"Search error:\n{str(es)}", parent=self.root)
-
-
-if __name__ == "__main__":
-    root = Tk()
-    obj = Roombooking(root)
-    root.mainloop()
+        self.status("Form reset!")
