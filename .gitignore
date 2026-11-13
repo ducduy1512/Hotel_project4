@@ -1,0 +1,20 @@
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyCharm temporary files
+.idea/
+
+# Test and log files
+.pytest_cache/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
