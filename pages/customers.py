@@ -1,13 +1,21 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import get_connection
+
+import json
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+
+
+# Địa chỉ API FastAPI
+API_BASE_URL = "http://127.0.0.1:8000/api/customers"
 
 
 class CustomersPage:
     def __init__(self, parent):
         self.parent = parent
         self.selected_customer_id = None
+        self.all_customers = []
 
         self.colors = {
             "navy": "#101F35",
@@ -23,6 +31,102 @@ class CustomersPage:
         self.build_ui()
         self.load_customers()
 
+    # =====================================================
+    # API REQUEST
+    # =====================================================
+
+    def api_request(self, method, endpoint="", data=None):
+        url = API_BASE_URL + endpoint
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+
+        body = None
+
+        if data is not None:
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+
+        request = Request(
+            url=url,
+            data=body,
+            headers=headers,
+            method=method
+        )
+
+        try:
+            with urlopen(request, timeout=10) as response:
+                response_body = response.read().decode("utf-8")
+
+                if not response_body:
+                    return {}
+
+                return json.loads(response_body)
+
+        except HTTPError as e:
+            error_body = e.read().decode("utf-8")
+
+            try:
+                error_data = json.loads(error_body)
+                detail = error_data.get("detail", error_body)
+            except (json.JSONDecodeError, AttributeError):
+                detail = error_body
+
+            raise Exception(f"HTTP {e.code}: {detail}")
+
+        except URLError as e:
+            raise Exception(
+                "Không thể kết nối FastAPI.\n"
+                "Hãy kiểm tra server FastAPI đã chạy chưa.\n\n"
+                f"Chi tiết: {e.reason}"
+            )
+
+        except json.JSONDecodeError:
+            raise Exception("API trả về dữ liệu JSON không hợp lệ.")
+
+    # =====================================================
+    # EXTRACT CUSTOMER DATA
+    # =====================================================
+
+    def extract_customers(self, response):
+        # Trường hợp API trả về danh sách trực tiếp
+        if isinstance(response, list):
+            return response
+
+        if isinstance(response, dict):
+
+            # Các tên trường có thể chứa danh sách khách hàng
+            possible_keys = [
+                "data",
+                "customers",
+                "khach",
+                "khach_hang",
+                "items",
+                "results"
+            ]
+
+            for key in possible_keys:
+                value = response.get(key)
+
+                if isinstance(value, list):
+                    return value
+
+                if isinstance(value, dict):
+                    nested = self.extract_customers(value)
+
+                    if nested:
+                        return nested
+
+        raise Exception(
+            "Không xác định được danh sách khách hàng "
+            "từ dữ liệu API trả về."
+        )
+
+    # =====================================================
+    # BUILD UI
+    # =====================================================
+
     def build_ui(self):
         self.main_frame = tk.Frame(
             self.parent,
@@ -30,7 +134,7 @@ class CustomersPage:
         )
         self.main_frame.pack(fill="both", expand=True)
 
-        # ===== HEADER =====
+        # HEADER
         header = tk.Frame(
             self.main_frame,
             bg=self.colors["background"]
@@ -53,7 +157,7 @@ class CustomersPage:
             bg=self.colors["background"]
         ).pack(anchor="w", pady=(5, 0))
 
-        # ===== SEARCH BAR =====
+        # SEARCH BAR
         search_frame = tk.Frame(
             self.main_frame,
             bg=self.colors["white"],
@@ -94,7 +198,7 @@ class CustomersPage:
             cursor="hand2"
         ).pack(side="left", padx=10)
 
-        # ===== CUSTOMER FORM =====
+        # CUSTOMER FORM
         form = tk.LabelFrame(
             self.main_frame,
             text="THÔNG TIN KHÁCH HÀNG",
@@ -123,48 +227,72 @@ class CustomersPage:
                 font=("Arial", 10, "bold"),
                 bg=self.colors["white"],
                 fg=self.colors["text"]
-            ).grid(row=0, column=index, sticky="w", padx=10, pady=(5, 5))
+            ).grid(
+                row=0,
+                column=index,
+                sticky="w",
+                padx=10,
+                pady=(5, 5)
+            )
 
             ttk.Entry(
                 form,
                 textvariable=variable,
                 font=("Arial", 11),
                 width=30
-            ).grid(row=1, column=index, sticky="ew", padx=10, pady=(0, 10))
+            ).grid(
+                row=1,
+                column=index,
+                sticky="ew",
+                padx=10,
+                pady=(0, 10)
+            )
 
             form.grid_columnconfigure(index, weight=1)
 
-        # ===== BUTTONS =====
+        # BUTTONS
         button_frame = tk.Frame(
             form,
             bg=self.colors["white"]
         )
         button_frame.grid(
-            row=2, column=0, columnspan=3,
-            sticky="w", padx=10, pady=5
+            row=2,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            padx=10,
+            pady=5
         )
 
         self.create_button(
-            button_frame, "THÊM KHÁCH HÀNG",
-            self.add_customer, self.colors["green"]
+            button_frame,
+            "THÊM KHÁCH HÀNG",
+            self.add_customer,
+            self.colors["green"]
         )
 
         self.create_button(
-            button_frame, "CẬP NHẬT",
-            self.update_customer, self.colors["navy"]
+            button_frame,
+            "CẬP NHẬT",
+            self.update_customer,
+            self.colors["navy"]
         )
 
         self.create_button(
-            button_frame, "XÓA",
-            self.delete_customer, self.colors["red"]
+            button_frame,
+            "XÓA",
+            self.delete_customer,
+            self.colors["red"]
         )
 
         self.create_button(
-            button_frame, "XÓA TRẮNG",
-            self.clear_form, "#8793A5"
+            button_frame,
+            "XÓA TRẮNG",
+            self.clear_form,
+            "#8793A5"
         )
 
-        # ===== CUSTOMER TABLE =====
+        # CUSTOMER TABLE
         table_frame = tk.Frame(
             self.main_frame,
             bg=self.colors["white"],
@@ -172,8 +300,10 @@ class CustomersPage:
             highlightthickness=1
         )
         table_frame.pack(
-            fill="both", expand=True,
-            padx=35, pady=(10, 25)
+            fill="both",
+            expand=True,
+            padx=35,
+            pady=(10, 25)
         )
 
         tk.Label(
@@ -211,12 +341,18 @@ class CustomersPage:
         self.tree.configure(yscrollcommand=scrollbar.set)
 
         self.tree.pack(
-            side="left", fill="both",
-            expand=True, padx=(15, 0), pady=(0, 15)
+            side="left",
+            fill="both",
+            expand=True,
+            padx=(15, 0),
+            pady=(0, 15)
         )
+
         scrollbar.pack(
-            side="right", fill="y",
-            padx=(0, 15), pady=(0, 15)
+            side="right",
+            fill="y",
+            padx=(0, 15),
+            pady=(0, 15)
         )
 
         self.tree.bind(
@@ -224,19 +360,25 @@ class CustomersPage:
             self.select_customer
         )
 
-        # ===== TABLE STYLE =====
+        # TABLE STYLE
         style = ttk.Style()
+
         style.configure(
             "Treeview",
             rowheight=32,
             font=("Arial", 10)
         )
+
         style.configure(
             "Treeview.Heading",
             font=("Arial", 10, "bold"),
             background="#E9EDF3",
             foreground=self.colors["navy"]
         )
+
+    # =====================================================
+    # CREATE BUTTON
+    # =====================================================
 
     def create_button(self, parent, text, command, color):
         tk.Button(
@@ -252,63 +394,73 @@ class CustomersPage:
             cursor="hand2"
         ).pack(side="left", padx=(0, 10))
 
-    # ===== LOAD CUSTOMERS =====
-    def load_customers(self, keyword=None):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+    # =====================================================
+    # LOAD CUSTOMERS FROM API
+    # =====================================================
 
-        connection = get_connection()
-        if connection is None:
-            messagebox.showerror(
-                "Lỗi kết nối",
-                "Không thể kết nối MySQL."
-            )
-            return
-
-        cursor = None
-
+    def load_customers(self, keyword=None, refresh=True):
         try:
-            cursor = connection.cursor()
+            if refresh:
+                response = self.api_request("GET", "/")
+                self.all_customers = self.extract_customers(response)
 
+            customers = self.all_customers
+
+            # Tìm kiếm trên dữ liệu đã tải
             if keyword:
-                sql = """
-                    SELECT id, ho_ten, cccd, sdt
-                    FROM khach
-                    WHERE ho_ten LIKE %s
-                       OR cccd LIKE %s
-                       OR sdt LIKE %s
-                    ORDER BY id DESC
-                """
-                value = f"%{keyword}%"
-                cursor.execute(sql, (value, value, value))
-            else:
-                cursor.execute("""
-                    SELECT id, ho_ten, cccd, sdt
-                    FROM khach
-                    ORDER BY id DESC
-                """)
+                keyword = keyword.lower().strip()
 
-            for row in cursor.fetchall():
-                self.tree.insert("", "end", values=row)
+                customers = [
+                    customer for customer in customers
+                    if keyword in str(customer.get("ho_ten", "")).lower()
+                    or keyword in str(customer.get("cccd", "")).lower()
+                    or keyword in str(customer.get("sdt", "")).lower()
+                    or keyword in str(customer.get("id", "")).lower()
+                ]
+
+            # Xóa dữ liệu cũ trên bảng
+            for item in self.tree.get_children():
+                self.tree.delete(item)
+
+            # Đưa dữ liệu API vào Treeview
+            for customer in customers:
+                self.tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        customer.get("id", ""),
+                        customer.get("ho_ten", ""),
+                        customer.get("cccd", ""),
+                        customer.get("sdt", "")
+                    )
+                )
 
         except Exception as e:
-            messagebox.showerror("Lỗi", str(e))
+            messagebox.showerror(
+                "Lỗi tải khách hàng",
+                str(e)
+            )
 
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
+    # =====================================================
+    # SEARCH
+    # =====================================================
 
-    # ===== SEARCH =====
     def search_customers(self, event=None):
         keyword = self.search_var.get().strip()
-        self.load_customers(keyword if keyword else None)
+
+        self.load_customers(
+            keyword if keyword else None,
+            refresh=False
+        )
 
     def reset_search(self):
         self.search_var.set("")
         self.load_customers()
 
-    # ===== SELECT CUSTOMER =====
+    # =====================================================
+    # SELECT CUSTOMER
+    # =====================================================
+
     def select_customer(self, event=None):
         selected = self.tree.selection()
 
@@ -318,11 +470,15 @@ class CustomersPage:
         values = self.tree.item(selected[0], "values")
 
         self.selected_customer_id = values[0]
+
         self.name_var.set(values[1])
         self.cccd_var.set(values[2])
         self.phone_var.set(values[3])
 
-    # ===== VALIDATE FORM =====
+    # =====================================================
+    # VALIDATE FORM
+    # =====================================================
+
     def validate_form(self):
         name = self.name_var.get().strip()
         cccd = self.cccd_var.get().strip()
@@ -335,30 +491,28 @@ class CustomersPage:
             )
             return None
 
-        return name, cccd, phone
+        return {
+            "ho_ten": name,
+            "cccd": cccd,
+            "sdt": phone
+        }
 
-    # ===== ADD CUSTOMER =====
+    # =====================================================
+    # ADD CUSTOMER
+    # =====================================================
+
     def add_customer(self):
         data = self.validate_form()
+
         if data is None:
             return
 
-        connection = get_connection()
-        if connection is None:
-            messagebox.showerror("Lỗi", "Không thể kết nối MySQL.")
-            return
-
-        cursor = None
-
         try:
-            cursor = connection.cursor()
-
-            cursor.execute("""
-                INSERT INTO khach (ho_ten, cccd, sdt)
-                VALUES (%s, %s, %s)
-            """, data)
-
-            connection.commit()
+            self.api_request(
+                "POST",
+                "/",
+                data
+            )
 
             messagebox.showinfo(
                 "Thành công",
@@ -369,19 +523,15 @@ class CustomersPage:
             self.load_customers()
 
         except Exception as e:
-            connection.rollback()
             messagebox.showerror(
                 "Không thể thêm khách hàng",
-                "Có thể CCCD hoặc số điện thoại đã tồn tại.\n\n"
-                + str(e)
+                str(e)
             )
 
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
+    # =====================================================
+    # UPDATE CUSTOMER
+    # =====================================================
 
-    # ===== UPDATE CUSTOMER =====
     def update_customer(self):
         if self.selected_customer_id is None:
             messagebox.showwarning(
@@ -391,28 +541,16 @@ class CustomersPage:
             return
 
         data = self.validate_form()
+
         if data is None:
             return
 
-        connection = get_connection()
-        if connection is None:
-            messagebox.showerror("Lỗi", "Không thể kết nối MySQL.")
-            return
-
-        cursor = None
-
         try:
-            cursor = connection.cursor()
-
-            cursor.execute("""
-                UPDATE khach
-                SET ho_ten = %s,
-                    cccd = %s,
-                    sdt = %s
-                WHERE id = %s
-            """, (*data, self.selected_customer_id))
-
-            connection.commit()
+            self.api_request(
+                "PUT",
+                f"/{self.selected_customer_id}",
+                data
+            )
 
             messagebox.showinfo(
                 "Thành công",
@@ -423,15 +561,15 @@ class CustomersPage:
             self.load_customers()
 
         except Exception as e:
-            connection.rollback()
-            messagebox.showerror("Lỗi cập nhật", str(e))
+            messagebox.showerror(
+                "Lỗi cập nhật",
+                str(e)
+            )
 
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
+    # =====================================================
+    # DELETE CUSTOMER
+    # =====================================================
 
-    # ===== DELETE CUSTOMER =====
     def delete_customer(self):
         if self.selected_customer_id is None:
             messagebox.showwarning(
@@ -448,22 +586,11 @@ class CustomersPage:
         if not confirm:
             return
 
-        connection = get_connection()
-        if connection is None:
-            messagebox.showerror("Lỗi", "Không thể kết nối MySQL.")
-            return
-
-        cursor = None
-
         try:
-            cursor = connection.cursor()
-
-            cursor.execute(
-                "DELETE FROM khach WHERE id = %s",
-                (self.selected_customer_id,)
+            self.api_request(
+                "DELETE",
+                f"/{self.selected_customer_id}"
             )
-
-            connection.commit()
 
             messagebox.showinfo(
                 "Thành công",
@@ -474,23 +601,24 @@ class CustomersPage:
             self.load_customers()
 
         except Exception as e:
-            connection.rollback()
             messagebox.showerror(
                 "Không thể xóa",
-                "Khách hàng có thể đang được liên kết với booking.\n"
-                "Hãy kiểm tra dữ liệu liên quan trước khi xóa.\n\n"
+                "Khách hàng có thể đang được liên kết với booking "
+                "hoặc không thể xóa.\n\n"
                 + str(e)
             )
 
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
+    # =====================================================
+    # CLEAR FORM
+    # =====================================================
 
-    # ===== CLEAR FORM =====
     def clear_form(self):
         self.selected_customer_id = None
+
         self.name_var.set("")
         self.cccd_var.set("")
         self.phone_var.set("")
-        self.tree.selection_remove(self.tree.selection())
+
+        self.tree.selection_remove(
+            self.tree.selection()
+        )
