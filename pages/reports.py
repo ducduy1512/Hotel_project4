@@ -1,613 +1,538 @@
-
 import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import datetime
-from database import get_connection
+from datetime import date
+
+from api_client import api_client, APIError
 
 
 class ReportsPage:
+
     def __init__(self, parent):
         self.parent = parent
 
-        self.frame = tk.Frame(parent, bg="#F3F5F9")
-        self.frame.pack(fill="both", expand=True)
-
-        self.start_var = tk.StringVar(value="2026-11-01")
-        self.end_var = tk.StringVar(value="2026-11-30")
-
-        self.total_revenue_var = tk.StringVar(value="0 đ")
-        self.total_bookings_var = tk.StringVar(value="0")
-        self.total_customers_var = tk.StringVar(value="0")
-        self.success_payments_var = tk.StringVar(value="0")
-
-        self.build_ui()
-        self.load_reports()
-
-    # ==================================================
-    # GIAO DIỆN
-    # ==================================================
-    def build_ui(self):
-
-        # HEADER
-        header = tk.Frame(self.frame, bg="#F3F5F9")
-        header.pack(fill="x", padx=25, pady=(20, 10))
-
-        tk.Label(
-            header,
-            text="QUẢN LÝ BÁO CÁO",
-            font=("Arial", 23, "bold"),
-            fg="#10233F",
-            bg="#F3F5F9"
-        ).pack(anchor="w")
-
-        tk.Label(
-            header,
-            text="Thống kê doanh thu, đặt phòng và hiệu quả kinh doanh",
-            font=("Arial", 11),
-            fg="#8190A5",
-            bg="#F3F5F9"
-        ).pack(anchor="w", pady=(5, 0))
-
-        # FILTER
-        filter_frame = tk.Frame(
-            self.frame,
-            bg="white",
-            highlightbackground="#DCE2EA",
-            highlightthickness=1
-        )
-        filter_frame.pack(fill="x", padx=25, pady=10)
-
-        tk.Label(
-            filter_frame,
-            text="Từ ngày:",
-            font=("Arial", 10, "bold"),
-            bg="white",
-            fg="#10233F"
-        ).pack(side="left", padx=(15, 5), pady=15)
-
-        ttk.Entry(
-            filter_frame,
-            textvariable=self.start_var,
-            width=15
-        ).pack(side="left", padx=5)
-
-        tk.Label(
-            filter_frame,
-            text="Đến ngày:",
-            font=("Arial", 10, "bold"),
-            bg="white",
-            fg="#10233F"
-        ).pack(side="left", padx=(15, 5))
-
-        ttk.Entry(
-            filter_frame,
-            textvariable=self.end_var,
-            width=15
-        ).pack(side="left", padx=5)
-
-        tk.Label(
-            filter_frame,
-            text="Định dạng: YYYY-MM-DD",
-            font=("Arial", 9),
-            fg="#8190A5",
-            bg="white"
-        ).pack(side="left", padx=8)
-
-        tk.Button(
-            filter_frame,
-            text="THỐNG KÊ",
-            font=("Arial", 10, "bold"),
-            bg="#10233F",
-            fg="white",
-            relief="flat",
-            cursor="hand2",
-            command=self.load_reports
-        ).pack(side="left", padx=15, ipadx=12, ipady=8)
-
-        tk.Button(
-            filter_frame,
-            text="LÀM MỚI",
-            font=("Arial", 10, "bold"),
-            bg="#D6A84F",
-            fg="#10233F",
-            relief="flat",
-            cursor="hand2",
-            command=self.reset_filter
-        ).pack(side="left", padx=5, ipadx=12, ipady=8)
-
-        # KPI CARDS
-        cards_frame = tk.Frame(self.frame, bg="#F3F5F9")
-        cards_frame.pack(fill="x", padx=25, pady=10)
-
-        cards = [
-            ("TỔNG DOANH THU", self.total_revenue_var, "#D6A84F"),
-            ("TỔNG BOOKING", self.total_bookings_var, "#2878B5"),
-            ("KHÁCH HÀNG", self.total_customers_var, "#24966D"),
-            ("THANH TOÁN THÀNH CÔNG", self.success_payments_var, "#7A65B5")
-        ]
-
-        for index, (title, variable, color) in enumerate(cards):
-            card = tk.Frame(
-                cards_frame,
-                bg="white",
-                highlightbackground="#DCE2EA",
-                highlightthickness=1
-            )
-            card.grid(
-                row=0,
-                column=index,
-                sticky="nsew",
-                padx=5
-            )
-
-            tk.Label(
-                card,
-                text=title,
-                font=("Arial", 9, "bold"),
-                fg="#8190A5",
-                bg="white"
-            ).pack(anchor="w", padx=12, pady=(12, 5))
-
-            tk.Label(
-                card,
-                textvariable=variable,
-                font=("Arial", 17, "bold"),
-                fg=color,
-                bg="white"
-            ).pack(anchor="w", padx=12, pady=(0, 12))
-
-            cards_frame.columnconfigure(index, weight=1)
-
-        # NOTEBOOK
-        notebook_frame = tk.Frame(self.frame, bg="#F3F5F9")
-        notebook_frame.pack(
+        self.frame = ttk.Frame(parent)
+        self.frame.pack(
             fill="both",
             expand=True,
-            padx=25,
-            pady=(5, 20)
+            padx=15,
+            pady=15
         )
 
-        self.notebook = ttk.Notebook(notebook_frame)
-        self.notebook.pack(fill="both", expand=True)
+        self.create_widgets()
 
-        self.revenue_tab = tk.Frame(self.notebook, bg="white")
-        self.booking_tab = tk.Frame(self.notebook, bg="white")
-        self.customer_tab = tk.Frame(self.notebook, bg="white")
-        self.room_tab = tk.Frame(self.notebook, bg="white")
+        # Tự động tải báo cáo khi mở trang
+        self.load_report()
 
-        self.notebook.add(
-            self.revenue_tab,
-            text="Doanh thu theo tháng"
-        )
-        self.notebook.add(
-            self.booking_tab,
-            text="Thống kê đặt phòng"
-        )
-        self.notebook.add(
-            self.customer_tab,
-            text="Top khách hàng"
-        )
-        self.notebook.add(
-            self.room_tab,
-            text="Hiệu suất phòng"
-        )
+    # =================================================
+    # GIAO DIỆN
+    # =================================================
 
-        # TABLES
-        self.revenue_tree = self.create_table(
-            self.revenue_tab,
-            [
-                ("month", "Tháng", 180),
-                ("payments", "Số giao dịch", 180),
-                ("revenue", "Doanh thu", 220)
-            ]
-        )
+    def create_widgets(self):
 
-        self.booking_tree = self.create_table(
-            self.booking_tab,
-            [
-                ("status", "Trạng thái booking", 250),
-                ("quantity", "Số lượng", 180)
-            ]
+        title = ttk.Label(
+            self.frame,
+            text="THỐNG KÊ VÀ BÁO CÁO DOANH THU",
+            font=("Arial", 18, "bold")
+        )
+        title.pack(pady=(0, 15))
+
+        # ---------------------------------------------
+        # BỘ LỌC NGÀY
+        # ---------------------------------------------
+
+        filter_frame = ttk.LabelFrame(
+            self.frame,
+            text="Điều kiện thống kê",
+            padding=12
+        )
+        filter_frame.pack(fill="x", pady=5)
+
+        ttk.Label(
+            filter_frame,
+            text="Từ ngày (YYYY-MM-DD):"
+        ).grid(row=0, column=0, padx=5, pady=7)
+
+        self.start_date_var = tk.StringVar(
+            value=date.today().replace(day=1).isoformat()
         )
 
-        self.customer_tree = self.create_table(
-            self.customer_tab,
-            [
-                ("id", "Mã khách", 100),
-                ("name", "Khách hàng", 220),
-                ("bookings", "Số booking", 150),
-                ("spending", "Tổng chi tiêu", 220)
-            ]
+        ttk.Entry(
+            filter_frame,
+            textvariable=self.start_date_var,
+            width=18
+        ).grid(row=0, column=1, padx=5, pady=7)
+
+        ttk.Label(
+            filter_frame,
+            text="Đến ngày (YYYY-MM-DD):"
+        ).grid(row=0, column=2, padx=5, pady=7)
+
+        self.end_date_var = tk.StringVar(
+            value=date.today().isoformat()
         )
 
-        self.room_tree = self.create_table(
-            self.room_tab,
-            [
-                ("room", "Số phòng", 130),
-                ("type", "Loại phòng", 200),
-                ("bookings", "Số lượt đặt", 150),
-                ("revenue", "Doanh thu", 220)
-            ]
+        ttk.Entry(
+            filter_frame,
+            textvariable=self.end_date_var,
+            width=18
+        ).grid(row=0, column=3, padx=5, pady=7)
+
+        ttk.Button(
+            filter_frame,
+            text="Thống kê",
+            command=self.load_report
+        ).grid(row=0, column=4, padx=10, pady=7)
+
+        ttk.Button(
+            filter_frame,
+            text="Hôm nay",
+            command=self.today_report
+        ).grid(row=0, column=5, padx=5, pady=7)
+
+        ttk.Button(
+            filter_frame,
+            text="Làm mới",
+            command=self.reset_report
+        ).grid(row=0, column=6, padx=5, pady=7)
+
+        # ---------------------------------------------
+        # TỔNG QUAN DOANH THU
+        # ---------------------------------------------
+
+        summary_frame = ttk.LabelFrame(
+            self.frame,
+            text="Tổng quan doanh thu",
+            padding=15
+        )
+        summary_frame.pack(fill="x", pady=12)
+
+        self.revenue_label = self.create_summary_item(
+            summary_frame,
+            "Doanh thu thực thu",
+            "0 VNĐ",
+            0
         )
 
-    # ==================================================
-    # TẠO BẢNG
-    # ==================================================
-    def create_table(self, parent, columns):
+        self.payment_count_label = self.create_summary_item(
+            summary_frame,
+            "Số giao dịch",
+            "0",
+            1
+        )
 
-        container = tk.Frame(parent, bg="white")
-        container.pack(fill="both", expand=True, padx=12, pady=12)
+        self.success_count_label = self.create_summary_item(
+            summary_frame,
+            "Thanh toán thành công",
+            "0",
+            2
+        )
 
-        tree = ttk.Treeview(
-            container,
-            columns=[item[0] for item in columns],
+        # ---------------------------------------------
+        # BẢNG CHI TIẾT
+        # ---------------------------------------------
+
+        table_title = ttk.Label(
+            self.frame,
+            text="CHI TIẾT BÁO CÁO",
+            font=("Arial", 12, "bold")
+        )
+        table_title.pack(anchor="w", pady=(10, 5))
+
+        table_frame = ttk.Frame(self.frame)
+        table_frame.pack(
+            fill="both",
+            expand=True
+        )
+
+        columns = (
+            "booking_id",
+            "so_phong",
+            "ho_ten",
+            "ngay_nhan",
+            "ngay_tra",
+            "tong_tien",
+            "trang_thai"
+        )
+
+        self.tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
             show="headings",
-            height=15
+            height=14
         )
 
-        for key, title, width in columns:
-            tree.heading(key, text=title)
-            tree.column(
-                key,
-                width=width,
-                minwidth=80,
+        headings = {
+            "booking_id": "Booking ID",
+            "so_phong": "Số phòng",
+            "ho_ten": "Khách hàng",
+            "ngay_nhan": "Ngày nhận",
+            "ngay_tra": "Ngày trả",
+            "tong_tien": "Doanh thu ròng",
+            "trang_thai": "Trạng thái"
+        }
+
+        widths = {
+            "booking_id": 90,
+            "so_phong": 100,
+            "ho_ten": 180,
+            "ngay_nhan": 130,
+            "ngay_tra": 130,
+            "tong_tien": 150,
+            "trang_thai": 180
+        }
+
+        for col in columns:
+            self.tree.heading(
+                col,
+                text=headings[col]
+            )
+
+            self.tree.column(
+                col,
+                width=widths[col],
                 anchor="center"
             )
 
         scrollbar_y = ttk.Scrollbar(
-            container,
+            table_frame,
             orient="vertical",
-            command=tree.yview
+            command=self.tree.yview
         )
 
         scrollbar_x = ttk.Scrollbar(
-            container,
+            self.frame,
             orient="horizontal",
-            command=tree.xview
+            command=self.tree.xview
         )
 
-        tree.configure(
+        self.tree.configure(
             yscrollcommand=scrollbar_y.set,
             xscrollcommand=scrollbar_x.set
         )
 
-        tree.grid(row=0, column=0, sticky="nsew")
-        scrollbar_y.grid(row=0, column=1, sticky="ns")
-        scrollbar_x.grid(row=1, column=0, sticky="ew")
+        self.tree.pack(
+            side="left",
+            fill="both",
+            expand=True
+        )
 
-        container.rowconfigure(0, weight=1)
-        container.columnconfigure(0, weight=1)
+        scrollbar_y.pack(
+            side="right",
+            fill="y"
+        )
 
-        return tree
+        scrollbar_x.pack(fill="x")
 
-    # ==================================================
-    # KIỂM TRA NGÀY
-    # ==================================================
-    def validate_dates(self):
+        # ---------------------------------------------
+        # TRẠNG THÁI
+        # ---------------------------------------------
 
-        start = self.start_var.get().strip()
-        end = self.end_var.get().strip()
+        self.status_label = ttk.Label(
+            self.frame,
+            text="Chưa tải báo cáo.",
+            foreground="gray"
+        )
 
-        try:
-            start_date = datetime.strptime(start, "%Y-%m-%d").date()
-            end_date = datetime.strptime(end, "%Y-%m-%d").date()
+        self.status_label.pack(
+            anchor="w",
+            pady=8
+        )
 
-            if start_date > end_date:
-                messagebox.showwarning(
-                    "Ngày không hợp lệ",
-                    "Ngày bắt đầu không được lớn hơn ngày kết thúc."
-                )
-                return None
+    # =================================================
+    # TẠO Ô THỐNG KÊ
+    # =================================================
 
-            return start_date, end_date
+    def create_summary_item(
+        self,
+        parent,
+        title,
+        value,
+        column
+    ):
 
-        except ValueError:
-            messagebox.showwarning(
-                "Ngày không hợp lệ",
-                "Vui lòng nhập ngày theo định dạng YYYY-MM-DD."
-            )
-            return None
+        box = ttk.Frame(parent)
 
-    # ==================================================
-    # XÓA DỮ LIỆU BẢNG
-    # ==================================================
-    @staticmethod
-    def clear_tree(tree):
+        box.grid(
+            row=0,
+            column=column,
+            padx=20,
+            pady=5,
+            sticky="nsew"
+        )
 
-        for item in tree.get_children():
-            tree.delete(item)
+        ttk.Label(
+            box,
+            text=title,
+            font=("Arial", 10)
+        ).pack()
 
-    # ==================================================
-    # TẢI BÁO CÁO
-    # ==================================================
-    def load_reports(self):
+        value_label = ttk.Label(
+            box,
+            text=value,
+            font=("Arial", 16, "bold")
+        )
 
-        dates = self.validate_dates()
+        value_label.pack(pady=5)
 
-        if dates is None:
-            return
+        parent.columnconfigure(
+            column,
+            weight=1
+        )
 
-        start_date, end_date = dates
+        return value_label
 
-        connection = get_connection()
+    # =================================================
+    # HÀM HỖ TRỢ
+    # =================================================
 
-        if connection is None:
-            messagebox.showerror(
-                "Lỗi kết nối",
-                "Không thể kết nối đến MySQL."
-            )
-            return
-
-        cursor = None
-
-        try:
-            cursor = connection.cursor(dictionary=True)
-
-            self.clear_all_tables()
-
-            # ------------------------------------------
-            # 1. TỔNG DOANH THU
-            # Chỉ tính hóa đơn có thanh toán thành công.
-            # ------------------------------------------
-            cursor.execute(
-                """
-                SELECT
-                    COALESCE(SUM(h.tong_tien), 0) AS total_revenue
-                FROM hoadon h
-                JOIN pay p ON h.pay_id = p.id
-                WHERE p.status = 'THANH_CONG'
-                  AND DATE(p.ngay_thanh_toan)
-                      BETWEEN %s AND %s
-                """,
-                (start_date, end_date)
-            )
-
-            revenue_result = cursor.fetchone()
-
-            total_revenue = revenue_result["total_revenue"] or 0
-
-            self.total_revenue_var.set(
-                self.format_money(total_revenue)
-            )
-
-            # ------------------------------------------
-            # 2. TỔNG BOOKING
-            # ------------------------------------------
-            cursor.execute(
-                """
-                SELECT COUNT(*) AS total_bookings
-                FROM booking
-                WHERE ngay_nhan BETWEEN %s AND %s
-                """,
-                (start_date, end_date)
-            )
-
-            booking_result = cursor.fetchone()
-
-            self.total_bookings_var.set(
-                str(booking_result["total_bookings"])
-            )
-
-            # ------------------------------------------
-            # 3. SỐ KHÁCH HÀNG CÓ BOOKING
-            # ------------------------------------------
-            cursor.execute(
-                """
-                SELECT COUNT(DISTINCT khach_id) AS total_customers
-                FROM booking
-                WHERE ngay_nhan BETWEEN %s AND %s
-                """
-                ,
-                (start_date, end_date)
-            )
-
-            customer_result = cursor.fetchone()
-
-            self.total_customers_var.set(
-                str(customer_result["total_customers"])
-            )
-
-            # ------------------------------------------
-            # 4. SỐ THANH TOÁN THÀNH CÔNG
-            # ------------------------------------------
-            cursor.execute(
-                """
-                SELECT COUNT(*) AS total_payments
-                FROM pay
-                WHERE status = 'THANH_CONG'
-                  AND DATE(ngay_thanh_toan)
-                      BETWEEN %s AND %s
-                """,
-                (start_date, end_date)
-            )
-
-            payment_result = cursor.fetchone()
-
-            self.success_payments_var.set(
-                str(payment_result["total_payments"])
-            )
-
-            # ------------------------------------------
-            # 5. DOANH THU THEO THÁNG
-            # ------------------------------------------
-            cursor.execute(
-                """
-                SELECT
-                    DATE_FORMAT(p.ngay_thanh_toan, '%Y-%m') AS month,
-                    COUNT(p.id) AS payments,
-                    COALESCE(SUM(h.tong_tien), 0) AS revenue
-                FROM pay p
-                JOIN hoadon h ON h.pay_id = p.id
-                WHERE p.status = 'THANH_CONG'
-                  AND DATE(p.ngay_thanh_toan)
-                      BETWEEN %s AND %s
-                GROUP BY DATE_FORMAT(p.ngay_thanh_toan, '%Y-%m')
-                ORDER BY month
-                """,
-                (start_date, end_date)
-            )
-
-            for row in cursor.fetchall():
-                self.revenue_tree.insert(
-                    "",
-                    "end",
-                    values=(
-                        row["month"],
-                        row["payments"],
-                        self.format_money(row["revenue"])
-                    )
-                )
-
-            # ------------------------------------------
-            # 6. THỐNG KÊ TRẠNG THÁI BOOKING
-            # ------------------------------------------
-            cursor.execute(
-                """
-                SELECT
-                    trang_thai AS status,
-                    COUNT(*) AS quantity
-                FROM booking
-                WHERE ngay_nhan BETWEEN %s AND %s
-                GROUP BY trang_thai
-                ORDER BY quantity DESC
-                """,
-                (start_date, end_date)
-            )
-
-            for row in cursor.fetchall():
-                self.booking_tree.insert(
-                    "",
-                    "end",
-                    values=(
-                        row["status"],
-                        row["quantity"]
-                    )
-                )
-
-            # ------------------------------------------
-            # 7. TOP KHÁCH HÀNG
-            # ------------------------------------------
-            cursor.execute(
-                """
-                SELECT
-                    k.id,
-                    k.ho_ten AS name,
-                    COUNT(DISTINCT b.id) AS bookings,
-                    COALESCE(SUM(h.tong_tien), 0) AS spending
-                FROM khach k
-                JOIN booking b ON b.khach_id = k.id
-                LEFT JOIN pay p
-                    ON p.booking_id = b.id
-                    AND p.status = 'THANH_CONG'
-                LEFT JOIN hoadon h ON h.pay_id = p.id
-                WHERE b.ngay_nhan BETWEEN %s AND %s
-                GROUP BY k.id, k.ho_ten
-                ORDER BY spending DESC
-                LIMIT 10
-                """,
-                (start_date, end_date)
-            )
-
-            for row in cursor.fetchall():
-                self.customer_tree.insert(
-                    "",
-                    "end",
-                    values=(
-                        row["id"],
-                        row["name"],
-                        row["bookings"],
-                        self.format_money(row["spending"])
-                    )
-                )
-
-            # ------------------------------------------
-            # 8. HIỆU SUẤT PHÒNG
-            # ------------------------------------------
-            cursor.execute(
-                """
-                SELECT
-                    ph.so_phong AS room,
-                    lp.ten AS room_type,
-                    COUNT(DISTINCT b.id) AS bookings,
-                    COALESCE(SUM(
-                        CASE
-                            WHEN p.status = 'THANH_CONG'
-                            THEN h.tong_tien
-                            ELSE 0
-                        END
-                    ), 0) AS revenue
-                FROM phong ph
-                JOIN loaiphong lp
-                    ON ph.loai_phong_id = lp.id
-                LEFT JOIN booking b
-                    ON b.phong_id = ph.id
-                    AND b.ngay_nhan BETWEEN %s AND %s
-                LEFT JOIN pay p
-                    ON p.booking_id = b.id
-                LEFT JOIN hoadon h
-                    ON h.pay_id = p.id
-                GROUP BY ph.id, ph.so_phong, lp.ten
-                ORDER BY bookings DESC, ph.so_phong
-                """,
-                (start_date, end_date)
-            )
-
-            for row in cursor.fetchall():
-                self.room_tree.insert(
-                    "",
-                    "end",
-                    values=(
-                        row["room"],
-                        row["room_type"],
-                        row["bookings"],
-                        self.format_money(row["revenue"])
-                    )
-                )
-
-        except Exception as e:
-            messagebox.showerror(
-                "Lỗi báo cáo",
-                f"Không thể tải báo cáo:\n{e}"
-            )
-
-        finally:
-            if cursor:
-                cursor.close()
-
-            connection.close()
-
-    # ==================================================
-    # XÓA TẤT CẢ BẢNG
-    # ==================================================
-    def clear_all_tables(self):
-
-        self.clear_tree(self.revenue_tree)
-        self.clear_tree(self.booking_tree)
-        self.clear_tree(self.customer_tree)
-        self.clear_tree(self.room_tree)
-
-        self.total_revenue_var.set("0 đ")
-        self.total_bookings_var.set("0")
-        self.total_customers_var.set("0")
-        self.success_payments_var.set("0")
-
-    # ==================================================
-    # LÀM MỚI
-    # ==================================================
-    def reset_filter(self):
-
-        self.start_var.set("2026-11-01")
-        self.end_var.set("2026-11-30")
-
-        self.load_reports()
-
-    # ==================================================
-    # ĐỊNH DẠNG TIỀN
-    # ==================================================
     @staticmethod
     def format_money(value):
 
-        if value is None:
-            value = 0
+        try:
+            return f"{float(value or 0):,.0f} VNĐ"
 
-        return f"{float(value):,.0f} đ"
+        except (ValueError, TypeError):
+            return "0 VNĐ"
+
+    @staticmethod
+    def format_date(value):
+
+        if value is None:
+            return ""
+
+        return str(value)[:10]
+
+    @staticmethod
+    def get_number(data, key):
+
+        try:
+            return float(data.get(key) or 0)
+
+        except (ValueError, TypeError, AttributeError):
+            return 0
+
+    # =================================================
+    # KIỂM TRA NGÀY
+    # =================================================
+
+    def validate_dates(self):
+
+        start_text = self.start_date_var.get().strip()
+        end_text = self.end_date_var.get().strip()
+
+        try:
+            start = date.fromisoformat(start_text)
+            end = date.fromisoformat(end_text)
+
+        except ValueError:
+            raise ValueError(
+                "Ngày không hợp lệ. "
+                "Vui lòng nhập theo định dạng YYYY-MM-DD."
+            )
+
+        if start > end:
+            raise ValueError(
+                "Ngày bắt đầu không được lớn hơn ngày kết thúc."
+            )
+
+        return start_text, end_text
+
+    # =================================================
+    # TẢI BÁO CÁO TỪ API
+    # =================================================
+
+    def load_report(self):
+
+        try:
+            start_date, end_date = self.validate_dates()
+
+            self.status_label.config(
+                text="Đang tải dữ liệu báo cáo..."
+            )
+
+            self.frame.update_idletasks()
+
+            response = api_client.get(
+                "/api/reports/revenue",
+                params={
+                    "tu_ngay": start_date,
+                    "den_ngay": end_date
+                }
+            )
+
+            self.display_report(response)
+
+        except ValueError as error:
+
+            messagebox.showwarning(
+                "Ngày không hợp lệ",
+                str(error)
+            )
+
+        except APIError as error:
+
+            self.status_label.config(
+                text="Không thể tải báo cáo."
+            )
+
+            messagebox.showerror(
+                "Lỗi tải báo cáo",
+                str(error)
+            )
+
+    # =================================================
+    # HIỂN THỊ BÁO CÁO
+    # =================================================
+
+    def display_report(self, response):
+
+        if not isinstance(response, dict):
+
+            messagebox.showerror(
+                "Lỗi dữ liệu",
+                "API trả về dữ liệu báo cáo không đúng định dạng."
+            )
+            return
+
+        # ---------------------------------------------
+        # 1. LẤY DỮ LIỆU THỐNG KÊ
+        # ---------------------------------------------
+
+        summary_list = response.get("data", [])
+
+        if not isinstance(summary_list, list):
+            summary_list = []
+
+        summary = (
+            summary_list[0]
+            if summary_list and isinstance(summary_list[0], dict)
+            else {}
+        )
+
+        total_success = self.get_number(
+            summary,
+            "tong_tien_thanh_cong"
+        )
+
+        total_refund = self.get_number(
+            summary,
+            "tong_tien_hoan"
+        )
+
+        actual_revenue = self.get_number(
+            summary,
+            "doanh_thu_thuc_thu"
+        )
+
+        success_count = self.get_number(
+            summary,
+            "so_giao_dich_thanh_cong"
+        )
+
+        refund_count = self.get_number(
+            summary,
+            "so_giao_dich_hoan_tien"
+        )
+
+        total_payment_count = (
+            success_count + refund_count
+        )
+
+        # ---------------------------------------------
+        # 2. CẬP NHẬT CÁC Ô TỔNG QUAN
+        # ---------------------------------------------
+
+        self.revenue_label.config(
+            text=self.format_money(actual_revenue)
+        )
+
+        self.payment_count_label.config(
+            text=f"{total_payment_count:,.0f}"
+        )
+
+        self.success_count_label.config(
+            text=f"{success_count:,.0f}"
+        )
+
+        # ---------------------------------------------
+        # 3. LẤY DANH SÁCH BOOKING CHI TIẾT
+        # ---------------------------------------------
+
+        details = response.get("details", [])
+
+        if not isinstance(details, list):
+            details = []
+
+        # Xóa dữ liệu cũ
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        # Thêm dữ liệu mới
+        for record in details:
+
+            if not isinstance(record, dict):
+                continue
+
+            self.tree.insert(
+                "",
+                "end",
+                values=(
+                    record.get("booking_id", ""),
+                    record.get("so_phong", ""),
+                    record.get("ho_ten", ""),
+                    self.format_date(
+                        record.get("ngay_nhan")
+                    ),
+                    self.format_date(
+                        record.get("ngay_tra")
+                    ),
+                    self.format_money(
+                        record.get("tong_tien", 0)
+                    ),
+                    record.get("trang_thai", "")
+                )
+            )
+
+        # ---------------------------------------------
+        # 4. CẬP NHẬT TRẠNG THÁI
+        # ---------------------------------------------
+
+        self.status_label.config(
+            text=(
+                f"Đã tải báo cáo từ "
+                f"{response.get('tu_ngay', '')} đến "
+                f"{response.get('den_ngay', '')} | "
+                f"{len(details)} booking | "
+                f"Tiền thành công: {self.format_money(total_success)} | "
+                f"Tiền hoàn: {self.format_money(total_refund)}"
+            )
+        )
+
+    # =================================================
+    # BÁO CÁO HÔM NAY
+    # =================================================
+
+    def today_report(self):
+
+        today = date.today().isoformat()
+
+        self.start_date_var.set(today)
+        self.end_date_var.set(today)
+
+        self.load_report()
+
+    # =================================================
+    # LÀM MỚI
+    # =================================================
+
+    def reset_report(self):
+
+        self.start_date_var.set(
+            date.today().replace(day=1).isoformat()
+        )
+
+        self.end_date_var.set(
+            date.today().isoformat()
+        )
+
+        self.load_report()

@@ -18,18 +18,7 @@ router = APIRouter(
 # SCHEMAS
 # ==================================================
 
-class BookingCreate(BaseModel):
-    phong_id: int = Field(gt=0)
-    khach_id: int = Field(gt=0)
-    ngay_nhan: date
-    ngay_tra: date
-
-
-class BookingUpdate(BaseModel):
-    phong_id: int = Field(gt=0)
-    khach_id: int = Field(gt=0)
-    ngay_nhan: date
-    ngay_tra: date
+from api.schemas import BookingCreate, BookingUpdate
 
 
 # ==================================================

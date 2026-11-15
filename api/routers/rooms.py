@@ -11,20 +11,7 @@ router = APIRouter(
 )
 
 
-# ==============================
-# SCHEMAS
-# ==============================
-
-class RoomCreate(BaseModel):
-    so_phong: str = Field(min_length=1, max_length=20)
-    loai_phong_id: int = Field(gt=0)
-    trang_thai: str = "SAN_SANG"
-
-
-class RoomUpdate(BaseModel):
-    so_phong: str = Field(min_length=1, max_length=20)
-    loai_phong_id: int = Field(gt=0)
-    trang_thai: str
+from api.schemas import RoomCreate, RoomUpdate
 
 
 # ==============================

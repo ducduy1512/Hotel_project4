@@ -11,20 +11,7 @@ router = APIRouter(
 )
 
 
-# ==============================
-# SCHEMAS
-# ==============================
-
-class RoomTypeCreate(BaseModel):
-    ten: str = Field(min_length=1, max_length=100)
-    gia_co_ban: float = Field(gt=0)
-    suc_chua: int = Field(gt=0)
-
-
-class RoomTypeUpdate(BaseModel):
-    ten: str = Field(min_length=1, max_length=100)
-    gia_co_ban: float = Field(gt=0)
-    suc_chua: int = Field(gt=0)
+from api.schemas import RoomTypeCreate, RoomTypeUpdate
 
 
 # ==============================

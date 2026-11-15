@@ -1,349 +1,180 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+from datetime import datetime
 
-from database import get_connection
+from api_client import api_client, APIError
 
 
 class PaymentsPage:
+    METHODS = ["TIEN_MAT", "CHUYEN_KHOAN", "THE"]
+    STATUSES = [
+        "CHO_THANH_TOAN",
+        "THANH_CONG",
+        "THAT_BAI",
+        "HOAN_TIEN"
+    ]
+
     def __init__(self, parent):
         self.parent = parent
-
-        self.navy = "#101F35"
-        self.gold = "#D5AD5B"
-        self.white = "#FFFFFF"
-        self.background = "#F4F6F9"
-        self.gray = "#8793A5"
-
         self.selected_id = None
+        self.bookings = []
 
-        self.build_ui()
+        self.frame = ttk.Frame(parent)
+        self.frame.pack(fill="both", expand=True, padx=15, pady=15)
+
+        self.create_widgets()
+        self.load_bookings()
         self.load_payments()
 
-    def build_ui(self):
-        # Tiêu đề
-        tk.Label(
-            self.parent,
+    def create_widgets(self):
+        title = ttk.Label(
+            self.frame,
             text="QUẢN LÝ THANH TOÁN",
-            font=("Arial", 24, "bold"),
-            fg=self.navy,
-            bg=self.background
-        ).pack(anchor="w", padx=35, pady=(30, 5))
-
-        tk.Label(
-            self.parent,
-            text="Theo dõi giao dịch, phương thức và trạng thái thanh toán",
-            font=("Arial", 11),
-            fg=self.gray,
-            bg=self.background
-        ).pack(anchor="w", padx=35, pady=(0, 20))
-
-        # Thanh tìm kiếm và lọc
-        search_frame = tk.Frame(
-            self.parent,
-            bg=self.white,
-            highlightbackground="#DDE3EA",
-            highlightthickness=1
+            font=("Arial", 18, "bold")
         )
-        search_frame.pack(fill="x", padx=35, pady=(0, 18))
+        title.pack(pady=(0, 15))
 
-        tk.Label(
-            search_frame,
-            text="Tìm kiếm:",
-            font=("Arial", 10, "bold"),
-            bg=self.white,
-            fg=self.navy
-        ).pack(side="left", padx=(15, 8), pady=15)
-
-        self.search_entry = tk.Entry(
-            search_frame,
-            font=("Arial", 10),
-            width=23
+        form = ttk.LabelFrame(
+            self.frame,
+            text="Thông tin thanh toán",
+            padding=12
         )
-        self.search_entry.pack(side="left", padx=5, pady=12)
-        self.search_entry.bind(
-            "<KeyRelease>",
-            lambda event: self.load_payments()
+        form.pack(fill="x", pady=5)
+
+        ttk.Label(form, text="Booking ID:").grid(
+            row=0, column=0, padx=5, pady=7, sticky="w"
         )
-
-        tk.Label(
-            search_frame,
-            text="Trạng thái:",
-            font=("Arial", 10, "bold"),
-            bg=self.white,
-            fg=self.navy
-        ).pack(side="left", padx=(12, 8))
-
-        self.status_filter = ttk.Combobox(
-            search_frame,
-            values=[
-                "Tất cả",
-                "CHO_THANH_TOAN",
-                "THANH_CONG",
-                "THAT_BAI",
-                "HOAN_TIEN"
-            ],
+        self.booking_var = tk.StringVar()
+        self.booking_combo = ttk.Combobox(
+            form,
+            textvariable=self.booking_var,
             state="readonly",
-            width=19,
-            font=("Arial", 9)
+            width=25
         )
-        self.status_filter.set("Tất cả")
-        self.status_filter.pack(side="left", padx=5, pady=12)
-        self.status_filter.bind(
-            "<<ComboboxSelected>>",
-            lambda event: self.load_payments()
+        self.booking_combo.grid(row=0, column=1, padx=5, pady=7)
+
+        ttk.Label(form, text="Số tiền:").grid(
+            row=0, column=2, padx=5, pady=7, sticky="w"
         )
-
-        tk.Button(
-            search_frame,
-            text="LÀM MỚI",
-            command=self.refresh_page,
-            font=("Arial", 10, "bold"),
-            bg=self.navy,
-            fg=self.white,
-            relief="flat",
-            padx=16,
-            pady=9,
-            cursor="hand2"
-        ).pack(side="left", padx=12)
-
-        # Thông tin giao dịch
-        form_frame = tk.LabelFrame(
-            self.parent,
-            text=" THÔNG TIN THANH TOÁN ",
-            font=("Arial", 12, "bold"),
-            bg=self.white,
-            fg=self.navy,
-            padx=18,
-            pady=18
-        )
-        form_frame.pack(fill="x", padx=35, pady=(0, 18))
-
-        for col in range(3):
-            form_frame.columnconfigure(col, weight=1)
-
-        labels = [
-            "Mã thanh toán",
-            "Mã booking",
-            "Số tiền (VNĐ)"
-        ]
-
-        for col, label in enumerate(labels):
-            tk.Label(
-                form_frame,
-                text=label,
-                font=("Arial", 9, "bold"),
-                bg=self.white,
-                fg=self.navy
-            ).grid(
-                row=0, column=col,
-                sticky="w", padx=8, pady=(0, 7)
-            )
-
-        self.payment_id_var = tk.StringVar()
-        self.booking_id_var = tk.StringVar()
         self.amount_var = tk.StringVar()
-
-        self.payment_id_label = tk.Entry(
-            form_frame,
-            textvariable=self.payment_id_var,
-            state="readonly",
-            font=("Arial", 10),
-            readonlybackground="#EEF1F5"
-        )
-        self.payment_id_label.grid(
-            row=1, column=0,
-            sticky="ew", padx=8, pady=(0, 15), ipady=5
-        )
-
-        self.booking_id_label = tk.Entry(
-            form_frame,
-            textvariable=self.booking_id_var,
-            state="readonly",
-            font=("Arial", 10),
-            readonlybackground="#EEF1F5"
-        )
-        self.booking_id_label.grid(
-            row=1, column=1,
-            sticky="ew", padx=8, pady=(0, 15), ipady=5
-        )
-
-        self.amount_label = tk.Entry(
-            form_frame,
+        ttk.Entry(
+            form,
             textvariable=self.amount_var,
-            state="readonly",
-            font=("Arial", 10),
-            readonlybackground="#EEF1F5"
-        )
-        self.amount_label.grid(
-            row=1, column=2,
-            sticky="ew", padx=8, pady=(0, 15), ipady=5
-        )
+            width=25
+        ).grid(row=0, column=3, padx=5, pady=7)
 
-        tk.Label(
-            form_frame,
-            text="Phương thức thanh toán",
-            font=("Arial", 9, "bold"),
-            bg=self.white,
-            fg=self.navy
-        ).grid(
-            row=2, column=0,
-            sticky="w", padx=8, pady=(0, 7)
+        ttk.Label(form, text="Phương thức:").grid(
+            row=1, column=0, padx=5, pady=7, sticky="w"
         )
-
-        tk.Label(
-            form_frame,
-            text="Ngày thanh toán",
-            font=("Arial", 9, "bold"),
-            bg=self.white,
-            fg=self.navy
-        ).grid(
-            row=2, column=1,
-            sticky="w", padx=8, pady=(0, 7)
-        )
-
-        tk.Label(
-            form_frame,
-            text="Trạng thái thanh toán",
-            font=("Arial", 9, "bold"),
-            bg=self.white,
-            fg=self.navy
-        ).grid(
-            row=2, column=2,
-            sticky="w", padx=8, pady=(0, 7)
-        )
-
-        self.method_var = tk.StringVar()
-        self.date_var = tk.StringVar()
-        self.status_var = tk.StringVar()
-
-        self.method_label = tk.Entry(
-            form_frame,
+        self.method_var = tk.StringVar(value=self.METHODS[0])
+        ttk.Combobox(
+            form,
             textvariable=self.method_var,
+            values=self.METHODS,
             state="readonly",
-            font=("Arial", 10),
-            readonlybackground="#EEF1F5"
-        )
-        self.method_label.grid(
-            row=3, column=0,
-            sticky="ew", padx=8, pady=(0, 15), ipady=5
-        )
+            width=23
+        ).grid(row=1, column=1, padx=5, pady=7)
 
-        self.date_label = tk.Entry(
-            form_frame,
-            textvariable=self.date_var,
-            state="readonly",
-            font=("Arial", 10),
-            readonlybackground="#EEF1F5"
+        ttk.Label(form, text="Trạng thái:").grid(
+            row=1, column=2, padx=5, pady=7, sticky="w"
         )
-        self.date_label.grid(
-            row=3, column=1,
-            sticky="ew", padx=8, pady=(0, 15), ipady=5
-        )
-
-        self.status_combo = ttk.Combobox(
-            form_frame,
+        self.status_var = tk.StringVar(value="CHO_THANH_TOAN")
+        ttk.Combobox(
+            form,
             textvariable=self.status_var,
-            values=[
-                "CHO_THANH_TOAN",
-                "THANH_CONG",
-                "THAT_BAI",
-                "HOAN_TIEN"
-            ],
+            values=self.STATUSES,
             state="readonly",
-            font=("Arial", 9)
-        )
-        self.status_combo.grid(
-            row=3, column=2,
-            sticky="ew", padx=8, pady=(0, 15), ipady=4
-        )
+            width=23
+        ).grid(row=1, column=3, padx=5, pady=7)
 
-        # Nút chức năng
-        button_frame = tk.Frame(form_frame, bg=self.white)
-        button_frame.grid(
-            row=4, column=0,
-            columnspan=3, sticky="w", padx=8
+        buttons = ttk.Frame(form)
+        buttons.grid(
+            row=2, column=0, columnspan=4,
+            pady=10, sticky="w"
         )
 
-        tk.Button(
-            button_frame,
-            text="CẬP NHẬT TRẠNG THÁI",
-            command=self.update_payment_status,
-            bg="#218C65",
-            fg=self.white,
-            font=("Arial", 10, "bold"),
-            relief="flat",
-            padx=18,
-            pady=10,
-            cursor="hand2"
-        ).pack(side="left", padx=(0, 10))
+        ttk.Button(
+            buttons, text="Thêm",
+            command=self.add_payment
+        ).pack(side="left", padx=5)
 
-        tk.Button(
-            button_frame,
-            text="XÓA TRẮNG",
-            command=self.clear_form,
-            bg="#8793A5",
-            fg=self.white,
-            font=("Arial", 10, "bold"),
-            relief="flat",
-            padx=18,
-            pady=10,
-            cursor="hand2"
-        ).pack(side="left", padx=10)
+        ttk.Button(
+            buttons, text="Cập nhật",
+            command=self.update_payment
+        ).pack(side="left", padx=5)
 
-        # Danh sách thanh toán
-        table_frame = tk.Frame(
-            self.parent,
-            bg=self.white,
-            highlightbackground="#DDE3EA",
-            highlightthickness=1
-        )
-        table_frame.pack(
-            fill="both",
-            expand=True,
-            padx=35,
-            pady=(0, 25)
-        )
+        ttk.Button(
+            buttons, text="Xóa",
+            command=self.delete_payment
+        ).pack(side="left", padx=5)
 
-        tk.Label(
-            table_frame,
-            text="DANH SÁCH GIAO DỊCH",
-            font=("Arial", 13, "bold"),
-            fg=self.navy,
-            bg=self.white
-        ).pack(anchor="w", padx=18, pady=12)
+        ttk.Button(
+            buttons, text="Làm mới",
+            command=self.refresh
+        ).pack(side="left", padx=5)
+
+        search_frame = ttk.Frame(self.frame)
+        search_frame.pack(fill="x", pady=10)
+
+        ttk.Label(
+            search_frame, text="Tìm theo Booking ID:"
+        ).pack(side="left", padx=5)
+
+        self.search_var = tk.StringVar()
+        ttk.Entry(
+            search_frame,
+            textvariable=self.search_var,
+            width=20
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            search_frame,
+            text="Tìm kiếm",
+            command=self.search_payments
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            search_frame,
+            text="Hiển thị tất cả",
+            command=self.load_payments
+        ).pack(side="left", padx=5)
+
+        table_frame = ttk.Frame(self.frame)
+        table_frame.pack(fill="both", expand=True)
 
         columns = (
-            "id", "booking", "customer", "room",
-            "date", "amount", "method", "status"
+            "id",
+            "booking_id",
+            "ngay_thanh_toan",
+            "so_tien",
+            "method",
+            "status"
         )
 
         self.tree = ttk.Treeview(
             table_frame,
             columns=columns,
-            show="headings"
+            show="headings",
+            height=15
         )
 
         headings = {
-            "id": "Mã thanh toán",
-            "booking": "Mã booking",
-            "customer": "Khách hàng",
-            "room": "Phòng",
-            "date": "Ngày thanh toán",
-            "amount": "Số tiền",
+            "id": "Payment ID",
+            "booking_id": "Booking ID",
+            "ngay_thanh_toan": "Ngày thanh toán",
+            "so_tien": "Số tiền",
             "method": "Phương thức",
             "status": "Trạng thái"
         }
 
         widths = {
             "id": 90,
-            "booking": 90,
-            "customer": 160,
-            "room": 75,
-            "date": 130,
-            "amount": 140,
-            "method": 130,
-            "status": 160
+            "booking_id": 100,
+            "ngay_thanh_toan": 170,
+            "so_tien": 150,
+            "method": 150,
+            "status": 180
         }
 
         for col in columns:
@@ -354,125 +185,213 @@ class PaymentsPage:
                 anchor="center"
             )
 
-        scrollbar_y = ttk.Scrollbar(
+        scrollbar = ttk.Scrollbar(
             table_frame,
             orient="vertical",
             command=self.tree.yview
         )
-
-        scrollbar_x = ttk.Scrollbar(
-            table_frame,
-            orient="horizontal",
-            command=self.tree.xview
-        )
-
-        self.tree.configure(
-            yscrollcommand=scrollbar_y.set,
-            xscrollcommand=scrollbar_x.set
-        )
+        self.tree.configure(yscrollcommand=scrollbar.set)
 
         self.tree.pack(
-            side="top",
-            fill="both",
-            expand=True,
-            padx=(12, 0)
+            side="left", fill="both", expand=True
         )
-
-        scrollbar_y.pack(side="right", fill="y")
-        scrollbar_x.pack(side="bottom", fill="x")
+        scrollbar.pack(side="right", fill="y")
 
         self.tree.bind(
             "<<TreeviewSelect>>",
-            self.select_payment
+            self.on_select
         )
 
-    # Tải danh sách thanh toán
+    @staticmethod
+    def extract_list(response):
+        if isinstance(response, list):
+            return response
+
+        if isinstance(response, dict):
+            for key in ("payments", "data", "items", "results"):
+                value = response.get(key)
+                if isinstance(value, list):
+                    return value
+
+        return []
+
+    def load_bookings(self):
+        try:
+            response = api_client.get("/api/bookings/")
+            self.bookings = self.extract_list(response)
+
+            values = []
+            for booking in self.bookings:
+                booking_id = booking.get(
+                    "id", booking.get("booking_id")
+                )
+                if booking_id is not None:
+                    values.append(str(booking_id))
+
+            self.booking_combo["values"] = values
+
+            if values and not self.booking_var.get():
+                self.booking_var.set(values[0])
+
+        except APIError as error:
+            messagebox.showerror(
+                "Lỗi tải booking", str(error)
+            )
+
     def load_payments(self):
+        try:
+            response = api_client.get("/api/payments/")
+            payments = self.extract_list(response)
+            self.display_payments(payments)
+
+        except APIError as error:
+            messagebox.showerror(
+                "Lỗi tải thanh toán", str(error)
+            )
+
+    def display_payments(self, payments):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        keyword = self.search_entry.get().strip()
-        status = self.status_filter.get()
+        for payment in payments:
+            self.tree.insert(
+                "",
+                "end",
+                values=(
+                    payment.get("id", payment.get("pay_id", "")),
+                    payment.get(
+                        "booking_id", payment.get("booking_id", "")
+                    ),
+                    payment.get("ngay_thanh_toan", ""),
+                    payment.get("so_tien", 0),
+                    payment.get("method", ""),
+                    payment.get("status", "")
+                )
+            )
 
-        connection = get_connection()
+    def get_form_data(self):
+        booking_id = self.booking_var.get().strip()
+        amount_text = self.amount_var.get().strip()
 
-        if connection is None:
-            messagebox.showerror(
-                "Lỗi kết nối",
-                "Không thể kết nối MySQL."
+        if not booking_id:
+            raise ValueError("Vui lòng chọn Booking ID.")
+
+        if not amount_text:
+            raise ValueError("Vui lòng nhập số tiền.")
+
+        try:
+            amount = float(amount_text.replace(",", ""))
+        except ValueError:
+            raise ValueError("Số tiền phải là một số hợp lệ.")
+
+        if amount <= 0:
+            raise ValueError("Số tiền phải lớn hơn 0.")
+
+        return {
+            "booking_id": int(booking_id),
+            "so_tien": amount,
+            "method": self.method_var.get(),
+            "status": self.status_var.get()
+        }
+
+    def add_payment(self):
+        try:
+            data = self.get_form_data()
+
+            # Ngày thanh toán được tạo tại thời điểm thao tác.
+            data["ngay_thanh_toan"] = datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+            result = api_client.post(
+                "/api/payments/", data
+            )
+
+            messagebox.showinfo(
+                "Thành công",
+                result.get("message", "Thêm thanh toán thành công.")
+                if isinstance(result, dict)
+                else "Thêm thanh toán thành công."
+            )
+
+            self.clear_form()
+            self.load_payments()
+
+        except ValueError as error:
+            messagebox.showwarning("Dữ liệu không hợp lệ", str(error))
+        except APIError as error:
+            messagebox.showerror("Lỗi API", str(error))
+
+    def update_payment(self):
+        if self.selected_id is None:
+            messagebox.showwarning(
+                "Thông báo",
+                "Vui lòng chọn thanh toán cần cập nhật."
             )
             return
 
-        cursor = None
+        try:
+            data = self.get_form_data()
+
+            data["ngay_thanh_toan"] = datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+            result = api_client.put(
+                f"/api/payments/{self.selected_id}",
+                data
+            )
+
+            messagebox.showinfo(
+                "Thành công",
+                result.get("message", "Cập nhật thanh toán thành công.")
+                if isinstance(result, dict)
+                else "Cập nhật thanh toán thành công."
+            )
+
+            self.clear_form()
+            self.load_payments()
+
+        except ValueError as error:
+            messagebox.showwarning("Dữ liệu không hợp lệ", str(error))
+        except APIError as error:
+            messagebox.showerror("Lỗi API", str(error))
+
+    def delete_payment(self):
+        if self.selected_id is None:
+            messagebox.showwarning(
+                "Thông báo",
+                "Vui lòng chọn thanh toán cần xóa."
+            )
+            return
+
+        confirm = messagebox.askyesno(
+            "Xác nhận",
+            f"Bạn có chắc muốn xóa thanh toán ID {self.selected_id}?"
+        )
+
+        if not confirm:
+            return
 
         try:
-            cursor = connection.cursor()
+            result = api_client.delete(
+                f"/api/payments/{self.selected_id}"
+            )
 
-            sql = """
-                SELECT
-                    p.id,
-                    p.booking_id,
-                    k.ho_ten,
-                    r.so_phong,
-                    p.ngay_thanh_toan,
-                    p.so_tien,
-                    p.method,
-                    p.status
-                FROM pay p
-                JOIN booking b ON p.booking_id = b.id
-                JOIN khach k ON b.khach_id = k.id
-                JOIN phong r ON b.phong_id = r.id
-                WHERE (
-                    CAST(p.id AS CHAR) LIKE %s
-                    OR CAST(p.booking_id AS CHAR) LIKE %s
-                    OR k.ho_ten LIKE %s
-                    OR CAST(r.so_phong AS CHAR) LIKE %s
-                )
-            """
+            messagebox.showinfo(
+                "Thành công",
+                result.get("message", "Xóa thanh toán thành công.")
+                if isinstance(result, dict)
+                else "Xóa thanh toán thành công."
+            )
 
-            params = [
-                f"%{keyword}%",
-                f"%{keyword}%",
-                f"%{keyword}%",
-                f"%{keyword}%"
-            ]
+            self.clear_form()
+            self.load_payments()
 
-            if status != "Tất cả":
-                sql += " AND p.status = %s"
-                params.append(status)
+        except APIError as error:
+            messagebox.showerror("Không thể xóa", str(error))
 
-            sql += " ORDER BY p.id DESC"
-
-            cursor.execute(sql, tuple(params))
-
-            for row in cursor.fetchall():
-                payment_id, booking_id, customer, room, date, amount, method, payment_status = row
-
-                self.tree.insert(
-                    "",
-                    "end",
-                    values=(
-                        payment_id,
-                        booking_id,
-                        customer,
-                        room,
-                        date,
-                        f"{float(amount):,.0f} đ",
-                        method,
-                        payment_status
-                    )
-                )
-
-        except Exception as e:
-            messagebox.showerror("Lỗi", str(e))
-
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
-
-    # Chọn giao dịch
-    def select_payment(self, event):
+    def on_select(self, event=None):
         selected = self.tree.selection()
 
         if not selected:
@@ -481,149 +400,42 @@ class PaymentsPage:
         values = self.tree.item(selected[0], "values")
 
         self.selected_id = int(values[0])
+        self.booking_var.set(str(values[1]))
+        self.amount_var.set(str(values[3]))
+        self.method_var.set(values[4])
+        self.status_var.set(values[5])
 
-        self.payment_id_var.set(values[0])
-        self.booking_id_var.set(values[1])
-        self.amount_var.set(values[5])
-        self.method_var.set(values[6])
-        self.date_var.set(str(values[4]))
-        self.status_var.set(values[7])
+    def search_payments(self):
+        keyword = self.search_var.get().strip()
 
-    # Cập nhật trạng thái thanh toán
-    def update_payment_status(self):
-        if self.selected_id is None:
-            messagebox.showwarning(
-                "Chưa chọn giao dịch",
-                "Vui lòng chọn một giao dịch trong danh sách."
-            )
+        if not keyword:
+            self.load_payments()
             return
-
-        new_status = self.status_var.get()
-
-        if not new_status:
-            messagebox.showwarning(
-                "Thiếu trạng thái",
-                "Vui lòng chọn trạng thái thanh toán."
-            )
-            return
-
-        connection = get_connection()
-
-        if connection is None:
-            messagebox.showerror(
-                "Lỗi kết nối",
-                "Không thể kết nối MySQL."
-            )
-            return
-
-        cursor = None
 
         try:
-            cursor = connection.cursor()
+            response = api_client.get("/api/payments/")
+            payments = self.extract_list(response)
 
-            cursor.execute(
-                "SELECT status FROM pay WHERE id = %s",
-                (self.selected_id,)
-            )
+            filtered = [
+                payment for payment in payments
+                if str(payment.get("booking_id", "")) == keyword
+            ]
 
-            result = cursor.fetchone()
+            self.display_payments(filtered)
 
-            if not result:
-                messagebox.showerror(
-                    "Không tìm thấy",
-                    "Giao dịch không còn tồn tại."
-                )
-                return
+        except APIError as error:
+            messagebox.showerror("Lỗi API", str(error))
 
-            old_status = result[0]
-
-            if old_status == new_status:
-                messagebox.showinfo(
-                    "Thông báo",
-                    "Trạng thái thanh toán không thay đổi."
-                )
-                return
-
-            # Kiểm soát các bước chuyển trạng thái
-            allowed_transitions = {
-                "CHO_THANH_TOAN": [
-                    "THANH_CONG",
-                    "THAT_BAI"
-                ],
-                "THAT_BAI": [
-                    "CHO_THANH_TOAN",
-                    "THANH_CONG"
-                ],
-                "THANH_CONG": [
-                    "HOAN_TIEN"
-                ],
-                "HOAN_TIEN": []
-            }
-
-            if new_status not in allowed_transitions.get(old_status, []):
-                messagebox.showwarning(
-                    "Chuyển trạng thái không hợp lệ",
-                    f"Không thể chuyển từ {old_status} sang {new_status}."
-                )
-                return
-
-            confirm = messagebox.askyesno(
-                "Xác nhận thanh toán",
-                f"Mã giao dịch: {self.selected_id}\n"
-                f"Trạng thái hiện tại: {old_status}\n"
-                f"Trạng thái mới: {new_status}\n\n"
-                "Bạn có chắc chắn muốn cập nhật không?"
-            )
-
-            if not confirm:
-                return
-
-            cursor.execute("""
-                UPDATE pay
-                SET status = %s
-                WHERE id = %s
-            """, (new_status, self.selected_id))
-
-            connection.commit()
-
-            messagebox.showinfo(
-                "Thành công",
-                "Cập nhật trạng thái thanh toán thành công."
-            )
-
-            self.clear_form()
-            self.load_payments()
-
-        except Exception as e:
-            connection.rollback()
-            messagebox.showerror(
-                "Không thể cập nhật",
-                "MySQL đã từ chối cập nhật hoặc xảy ra lỗi.\n\n"
-                + str(e)
-            )
-
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
-
-    # Xóa biểu mẫu
     def clear_form(self):
         self.selected_id = None
-
-        self.payment_id_var.set("")
-        self.booking_id_var.set("")
         self.amount_var.set("")
-        self.method_var.set("")
-        self.date_var.set("")
-        self.status_var.set("")
+        self.method_var.set(self.METHODS[0])
+        self.status_var.set("CHO_THANH_TOAN")
 
-        for item in self.tree.selection():
-            self.tree.selection_remove(item)
+        if self.tree.selection():
+            self.tree.selection_remove(self.tree.selection())
 
-    # Làm mới
-    def refresh_page(self):
-        self.search_entry.delete(0, tk.END)
-        self.status_filter.set("Tất cả")
+    def refresh(self):
         self.clear_form()
+        self.load_bookings()
         self.load_payments()

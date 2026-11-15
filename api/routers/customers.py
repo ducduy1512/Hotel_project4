@@ -13,18 +13,7 @@ router = APIRouter(
 )
 
 
-# Dữ liệu nhận khi thêm khách hàng
-class CustomerCreate(BaseModel):
-    ho_ten: str = Field(min_length=1, max_length=100)
-    cccd: str = Field(min_length=1, max_length=20)
-    sdt: str = Field(min_length=1, max_length=20)
-
-
-# Dữ liệu nhận khi cập nhật khách hàng
-class CustomerUpdate(BaseModel):
-    ho_ten: str = Field(min_length=1, max_length=100)
-    cccd: str = Field(min_length=1, max_length=20)
-    sdt: str = Field(min_length=1, max_length=20)
+from api.schemas import CustomerCreate, CustomerUpdate
 
 
 # 1. Lấy danh sách khách hàng

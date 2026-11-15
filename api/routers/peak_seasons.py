@@ -18,18 +18,7 @@ router = APIRouter(
 # SCHEMAS
 # =====================================
 
-class PeakSeasonCreate(BaseModel):
-    phong_id: int = Field(gt=0)
-    tu_ngay: date
-    den_ngay: date
-    he_so_gia: float = Field(gt=0)
-
-
-class PeakSeasonUpdate(BaseModel):
-    phong_id: int = Field(gt=0)
-    tu_ngay: date
-    den_ngay: date
-    he_so_gia: float = Field(gt=0)
+from api.schemas import PeakSeasonCreate, PeakSeasonUpdate
 
 
 # =====================================

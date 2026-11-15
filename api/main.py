@@ -5,13 +5,25 @@ from fastapi import FastAPI, HTTPException, Depends
 from mysql.connector import Error
 
 from api.database import get_db
-from api.routers import customers, room_types, rooms, bookings, peak_seasons, services, payments, invoices, reports
+from api.routers import (
+    customers,
+    room_types,
+    rooms,
+    bookings,
+    peak_seasons,
+    services,
+    payments,
+    invoices,
+    reports,
+    auth
+)
 app = FastAPI(
     title="Hotel Booking Management API",
     description="REST API for Hotel Booking Management System",
     version="1.0.0"
 )
 
+app.include_router(auth.router)
 app.include_router(customers.router)
 app.include_router(room_types.router)
 app.include_router(rooms.router)
@@ -47,7 +59,7 @@ def database_health_check(db=Depends(get_db)):
 
         database_name = result[0] if result else None
 
-        if database_name != "hotel_management":
+        if database_name != "hotel_management_v2":
             raise HTTPException(
                 status_code=500,
                 detail=f"Đang kết nối nhầm database: {database_name}"

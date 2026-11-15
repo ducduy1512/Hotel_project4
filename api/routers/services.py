@@ -1,11 +1,7 @@
-
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
-from decimal import Decimal
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from typing import Optional
-
-from api.database import get_db
-
+from database import get_connection
 
 router = APIRouter(
     prefix="/api/services",
@@ -13,304 +9,198 @@ router = APIRouter(
 )
 
 
-# =========================
-# SCHEMAS
-# =========================
+from api.schemas import ServiceCreate, ServiceUpdate
 
-class ServiceCreate(BaseModel):
-    ten: str = Field(..., min_length=1, max_length=255)
-    don_gia: Decimal = Field(..., gt=0)
-    so_luong: int = Field(..., gt=0)
-    booking_id: int = Field(..., gt=0)
-
-
-class ServiceUpdate(BaseModel):
-    ten: Optional[str] = Field(None, min_length=1, max_length=255)
-    don_gia: Optional[Decimal] = Field(None, gt=0)
-    so_luong: Optional[int] = Field(None, gt=0)
-    booking_id: Optional[int] = Field(None, gt=0)
-
-
-# =========================
-# HELPER
-# =========================
-
-def get_service_by_id(cursor, service_id: int):
-    cursor.execute("""
-        SELECT
-            d.id,
-            d.ten,
-            d.don_gia,
-            d.so_luong,
-            d.booking_id
-        FROM dichvu d
-        WHERE d.id = %s
-    """, (service_id,))
-
-    return cursor.fetchone()
-
-
-def check_booking_exists(cursor, booking_id: int):
-    cursor.execute(
-        "SELECT id FROM booking WHERE id = %s",
-        (booking_id,)
-    )
-
-    if cursor.fetchone() is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Booking không tồn tại."
-        )
-
-
-# =========================
-# GET ALL SERVICES
-# =========================
 
 @router.get("/")
-def get_services(db=Depends(get_db)):
-    cursor = db.cursor(dictionary=True)
+def get_services():
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT id, ten, don_gia, so_luong, phong_id, booking_id
+        FROM dichvu
+        ORDER BY id
+    """)
+
+    data = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return data
+
+
+@router.post("/")
+def create_service(service: ServiceCreate):
+    conn = get_connection()
+    cursor = conn.cursor()
 
     try:
-        cursor.execute("""
-            SELECT
-                d.id,
-                d.ten,
-                d.don_gia,
-                d.so_luong,
-                d.booking_id,
-                b.phong_id,
-                b.khach_id,
-                b.ngay_nhan,
-                b.ngay_tra,
-                b.trang_thai AS booking_trang_thai
-            FROM dichvu d
-            LEFT JOIN booking b ON d.booking_id = b.id
-            ORDER BY d.id DESC
-        """)
+        phong_id = service.phong_id
 
-        return {
-            "message": "Lấy danh sách dịch vụ thành công",
-            "total": cursor.rowcount,
-            "services": cursor.fetchall()
-        }
-
-    finally:
-        cursor.close()
-
-
-# =========================
-# GET SERVICE BY ID
-# =========================
-
-@router.get("/{service_id}")
-def get_service(service_id: int, db=Depends(get_db)):
-    cursor = db.cursor(dictionary=True)
-
-    try:
-        service = get_service_by_id(cursor, service_id)
-
-        if service is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy dịch vụ."
+        if service.booking_id is not None:
+            cursor.execute(
+                "SELECT phong_id FROM booking WHERE id = %s",
+                (service.booking_id,)
             )
+            booking = cursor.fetchone()
 
-        return {
-            "message": "Lấy thông tin dịch vụ thành công",
-            "service": service
-        }
-
-    finally:
-        cursor.close()
-
-
-# =========================
-# CREATE SERVICE
-# =========================
-
-@router.post("/", status_code=201)
-def create_service(data: ServiceCreate, db=Depends(get_db)):
-    cursor = db.cursor(dictionary=True)
-
-    try:
-        check_booking_exists(cursor, data.booking_id)
-
-        cursor.execute("""
-            INSERT INTO dichvu (
-                ten,
-                don_gia,
-                so_luong,
-                booking_id
-            )
-            VALUES (%s, %s, %s, %s)
-        """, (
-            data.ten.strip(),
-            data.don_gia,
-            data.so_luong,
-            data.booking_id
-        ))
-
-        new_id = cursor.lastrowid
-        db.commit()
-
-        service = get_service_by_id(cursor, new_id)
-
-        return {
-            "message": "Thêm dịch vụ thành công",
-            "id": new_id,
-            "service": service
-        }
-
-    except HTTPException:
-        db.rollback()
-        raise
-
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail=f"Lỗi khi thêm dịch vụ: {str(e)}"
-        )
-
-    finally:
-        cursor.close()
-
-
-# =========================
-# UPDATE SERVICE
-# =========================
-
-@router.put("/{service_id}")
-def update_service(
-    service_id: int,
-    data: ServiceUpdate,
-    db=Depends(get_db)
-):
-    cursor = db.cursor(dictionary=True)
-
-    try:
-        existing = get_service_by_id(cursor, service_id)
-
-        if existing is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy dịch vụ."
-            )
-
-        update_data = data.model_dump(exclude_unset=True)
-
-        if not update_data:
-            raise HTTPException(
-                status_code=400,
-                detail="Không có thông tin nào được gửi để cập nhật."
-            )
-
-        if "ten" in update_data:
-            update_data["ten"] = update_data["ten"].strip()
-
-            if not update_data["ten"]:
+            if booking is None:
                 raise HTTPException(
-                    status_code=422,
-                    detail="Tên dịch vụ không được để trống."
+                    status_code=404,
+                    detail="Booking khong ton tai"
                 )
 
-        if "booking_id" in update_data:
-            check_booking_exists(cursor, update_data["booking_id"])
+            if phong_id is not None and phong_id != booking[0]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Phong khong khop voi booking"
+                )
 
-        allowed_fields = [
-            "ten",
-            "don_gia",
-            "so_luong",
-            "booking_id"
-        ]
+            phong_id = booking[0]
 
-        set_clause = ", ".join(
-            f"{field} = %s"
-            for field in update_data
-            if field in allowed_fields
-        )
+        if phong_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Phai chon phong hoac booking"
+            )
 
-        values = [
-            update_data[field]
-            for field in update_data
-            if field in allowed_fields
-        ]
+        cursor.execute("""
+            INSERT INTO dichvu
+            (ten, don_gia, so_luong, phong_id, booking_id)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (
+            service.ten,
+            service.don_gia,
+            service.so_luong,
+            phong_id,
+            service.booking_id
+        ))
 
-        values.append(service_id)
-
-        cursor.execute(
-            f"""
-            UPDATE dichvu
-            SET {set_clause}
-            WHERE id = %s
-            """,
-            tuple(values)
-        )
-
-        db.commit()
-
-        updated_service = get_service_by_id(cursor, service_id)
+        conn.commit()
 
         return {
-            "message": "Cập nhật dịch vụ thành công",
-            "service": updated_service
+            "message": "Them dich vu thanh cong",
+            "id": cursor.lastrowid
         }
 
     except HTTPException:
-        db.rollback()
+        conn.rollback()
         raise
 
     except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail=f"Lỗi khi cập nhật dịch vụ: {str(e)}"
-        )
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
     finally:
         cursor.close()
+        conn.close()
 
 
-# =========================
-# DELETE SERVICE
-# =========================
-
-@router.delete("/{service_id}")
-def delete_service(service_id: int, db=Depends(get_db)):
-    cursor = db.cursor(dictionary=True)
+@router.put("/{service_id}")
+def update_service(service_id: int, service: ServiceUpdate):
+    conn = get_connection()
+    cursor = conn.cursor()
 
     try:
-        existing = get_service_by_id(cursor, service_id)
+        phong_id = service.phong_id
 
-        if existing is None:
+        if service.booking_id is not None:
+            cursor.execute(
+                "SELECT phong_id FROM booking WHERE id = %s",
+                (service.booking_id,)
+            )
+            booking = cursor.fetchone()
+
+            if booking is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Booking khong ton tai"
+                )
+
+            if phong_id is not None and phong_id != booking[0]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Phong khong khop voi booking"
+                )
+
+            phong_id = booking[0]
+
+        if phong_id is None:
             raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy dịch vụ."
+                status_code=400,
+                detail="Phai chon phong hoac booking"
             )
 
+        cursor.execute("""
+            UPDATE dichvu
+            SET ten = %s,
+                don_gia = %s,
+                so_luong = %s,
+                phong_id = %s,
+                booking_id = %s
+            WHERE id = %s
+        """, (
+            service.ten,
+            service.don_gia,
+            service.so_luong,
+            phong_id,
+            service.booking_id,
+            service_id
+        ))
+
+        if cursor.rowcount == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="Dich vu khong ton tai"
+            )
+
+        conn.commit()
+
+        return {"message": "Cap nhat dich vu thanh cong"}
+
+    except HTTPException:
+        conn.rollback()
+        raise
+
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@router.delete("/{service_id}")
+def delete_service(service_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
         cursor.execute(
             "DELETE FROM dichvu WHERE id = %s",
             (service_id,)
         )
 
-        db.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="Dich vu khong ton tai"
+            )
 
-        return {
-            "message": "Xóa dịch vụ thành công",
-            "id": service_id
-        }
+        conn.commit()
+
+        return {"message": "Xoa dich vu thanh cong"}
 
     except HTTPException:
-        db.rollback()
+        conn.rollback()
         raise
 
     except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail=f"Lỗi khi xóa dịch vụ: {str(e)}"
-        )
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
     finally:
         cursor.close()
+        conn.close()

@@ -1,14 +1,18 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import get_connection
+
+from api_client import api_client, APIError
 
 
 class RoomsPage:
     def __init__(self, parent):
         self.parent = parent
         self.selected_room_id = None
+
         self.room_type_map = {}
+        self.room_type_data = {}
+        self.rooms_data = []
 
         self.colors = {
             "navy": "#101F35",
@@ -34,6 +38,7 @@ class RoomsPage:
     # =====================================
     # BUILD INTERFACE
     # =====================================
+
     def build_ui(self):
         self.main_frame = tk.Frame(
             self.parent,
@@ -110,6 +115,7 @@ class RoomsPage:
             width=18
         )
         self.filter_status.pack(side="left", pady=15)
+
         self.filter_status.bind(
             "<<ComboboxSelected>>",
             self.search_rooms
@@ -144,7 +150,7 @@ class RoomsPage:
         self.room_type_var = tk.StringVar()
         self.status_var = tk.StringVar(value="SAN_SANG")
 
-        # Room number
+        # ROOM NUMBER
         tk.Label(
             form,
             text="Số phòng",
@@ -158,9 +164,12 @@ class RoomsPage:
             textvariable=self.room_number_var,
             font=("Arial", 10),
             width=25
-        ).grid(row=1, column=0, sticky="ew", padx=10, pady=5)
+        ).grid(
+            row=1, column=0,
+            sticky="ew", padx=10, pady=5
+        )
 
-        # Room type
+        # ROOM TYPE
         tk.Label(
             form,
             text="Loại phòng",
@@ -177,11 +186,11 @@ class RoomsPage:
             font=("Arial", 10)
         )
         self.room_type_combo.grid(
-            row=1, column=1, sticky="ew",
-            padx=10, pady=5
+            row=1, column=1,
+            sticky="ew", padx=10, pady=5
         )
 
-        # Status
+        # STATUS
         tk.Label(
             form,
             text="Trạng thái",
@@ -199,8 +208,8 @@ class RoomsPage:
             font=("Arial", 10)
         )
         self.status_combo.grid(
-            row=1, column=2, sticky="ew",
-            padx=10, pady=5
+            row=1, column=2,
+            sticky="ew", padx=10, pady=5
         )
 
         for i in range(3):
@@ -217,23 +226,31 @@ class RoomsPage:
         )
 
         self.create_button(
-            button_frame, "THÊM PHÒNG",
-            self.add_room, self.colors["green"]
+            button_frame,
+            "THÊM PHÒNG",
+            self.add_room,
+            self.colors["green"]
         )
 
         self.create_button(
-            button_frame, "CẬP NHẬT",
-            self.update_room, self.colors["navy"]
+            button_frame,
+            "CẬP NHẬT",
+            self.update_room,
+            self.colors["navy"]
         )
 
         self.create_button(
-            button_frame, "XÓA PHÒNG",
-            self.delete_room, self.colors["red"]
+            button_frame,
+            "XÓA PHÒNG",
+            self.delete_room,
+            self.colors["red"]
         )
 
         self.create_button(
-            button_frame, "XÓA TRẮNG",
-            self.clear_form, self.colors["gray"]
+            button_frame,
+            "XÓA TRẮNG",
+            self.clear_form,
+            self.colors["gray"]
         )
 
         # ROOM TABLE
@@ -244,8 +261,10 @@ class RoomsPage:
             highlightthickness=1
         )
         table_frame.pack(
-            fill="both", expand=True,
-            padx=35, pady=(10, 25)
+            fill="both",
+            expand=True,
+            padx=35,
+            pady=(10, 25)
         )
 
         tk.Label(
@@ -292,6 +311,7 @@ class RoomsPage:
         self.tree.column("gia", width=150, anchor="center")
         self.tree.column("suc_chua", width=100, anchor="center")
         self.tree.column("trang_thai", width=180, anchor="center")
+
         self.tree.column(
             "loai_phong_id",
             width=0,
@@ -303,7 +323,10 @@ class RoomsPage:
             orient="vertical",
             command=self.tree.yview
         )
-        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        self.tree.configure(
+            yscrollcommand=scrollbar.set
+        )
 
         self.tree.pack(
             side="left",
@@ -312,6 +335,7 @@ class RoomsPage:
             padx=(15, 0),
             pady=(0, 15)
         )
+
         scrollbar.pack(
             side="right",
             fill="y",
@@ -338,6 +362,7 @@ class RoomsPage:
     # =====================================
     # BUTTON
     # =====================================
+
     def create_button(self, parent, text, command, color):
         tk.Button(
             parent,
@@ -353,174 +378,172 @@ class RoomsPage:
         ).pack(side="left", padx=(0, 10))
 
     # =====================================
-    # LOAD ROOM TYPES
+    # LOAD ROOM TYPES FROM API
     # =====================================
+
     def load_room_types(self):
-        connection = get_connection()
-
-        if connection is None:
-            messagebox.showerror(
-                "Lỗi kết nối",
-                "Không thể kết nối MySQL."
-            )
-            return
-
-        cursor = None
-
         try:
-            cursor = connection.cursor()
+            response = api_client.get("/api/room-types/")
 
-            cursor.execute("""
-                SELECT id, ten
-                FROM loaiphong
-                ORDER BY id
-            """)
+            if not isinstance(response, list):
+                raise APIError(
+                    "API loại phòng không trả về danh sách hợp lệ."
+                )
 
-            rows = cursor.fetchall()
+            self.room_type_map = {}
+            self.room_type_data = {}
 
-            self.room_type_map = {
-                f"{row[0]} - {row[1]}": row[0]
-                for row in rows
-            }
+            for item in response:
+                room_type_id = int(item["id"])
+                name = item["ten"]
+
+                display_name = f"{room_type_id} - {name}"
+
+                self.room_type_map[display_name] = room_type_id
+                self.room_type_data[room_type_id] = item
 
             self.room_type_combo["values"] = list(
                 self.room_type_map.keys()
             )
 
-        except Exception as e:
-            messagebox.showerror("Lỗi", str(e))
-
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
+        except (APIError, KeyError, TypeError, ValueError) as e:
+            messagebox.showerror(
+                "Lỗi tải loại phòng",
+                str(e)
+            )
 
     # =====================================
-    # LOAD ROOMS
+    # LOAD ROOMS FROM API
     # =====================================
+
     def load_rooms(self, keyword=None, status="Tất cả"):
+        try:
+            response = api_client.get("/api/rooms/")
+
+            if not isinstance(response, list):
+                raise APIError(
+                    "API phòng không trả về danh sách hợp lệ."
+                )
+
+            self.rooms_data = response
+
+            self.display_rooms(
+                self.rooms_data,
+                keyword,
+                status
+            )
+
+        except APIError as e:
+            messagebox.showerror(
+                "Lỗi tải danh sách phòng",
+                str(e)
+            )
+
+    # =====================================
+    # DISPLAY ROOMS
+    # =====================================
+
+    def display_rooms(self, data, keyword=None, status="Tất cả"):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        connection = get_connection()
+        keyword = (keyword or "").lower().strip()
 
-        if connection is None:
-            messagebox.showerror(
-                "Lỗi kết nối",
-                "Không thể kết nối MySQL."
+        for room in data:
+            room_id = int(room["id"])
+            room_number = room["so_phong"]
+            room_type_id = int(room["loai_phong_id"])
+            room_type_name = room.get("ten_loai_phong") or ""
+            room_status = room["trang_thai"]
+
+            # Lấy giá và sức chứa từ API loại phòng
+            room_type = self.room_type_data.get(
+                room_type_id,
+                {}
             )
-            return
 
-        cursor = None
+            price = room_type.get("gia_co_ban", 0)
+            capacity = room_type.get("suc_chua", 0)
 
-        try:
-            cursor = connection.cursor()
-
-            sql = """
-                SELECT
-                    p.id,
-                    p.so_phong,
-                    lp.ten,
-                    lp.gia_co_ban,
-                    lp.suc_chua,
-                    p.trang_thai,
-                    p.loai_phong_id
-                FROM phong p
-                JOIN loaiphong lp
-                    ON p.loai_phong_id = lp.id
-                WHERE 1 = 1
-            """
-
-            params = []
-
+            # Tìm kiếm
             if keyword:
-                sql += """
-                    AND (
-                        p.so_phong LIKE %s
-                        OR lp.ten LIKE %s
-                    )
-                """
-                params.extend([
-                    f"%{keyword}%",
-                    f"%{keyword}%"
-                ])
+                if (
+                    keyword not in str(room_number).lower()
+                    and keyword not in room_type_name.lower()
+                ):
+                    continue
 
-            if status != "Tất cả":
-                sql += " AND p.trang_thai = %s"
-                params.append(status)
+            # Lọc trạng thái
+            if status != "Tất cả" and room_status != status:
+                continue
 
-            sql += " ORDER BY p.so_phong"
-
-            cursor.execute(sql, tuple(params))
-
-            for row in cursor.fetchall():
-                room_id, room_number, room_type, price, capacity, room_status, type_id = row
-
-                self.tree.insert(
-                    "",
-                    "end",
-                    values=(
-                        room_id,
-                        room_number,
-                        room_type,
-                        f"{float(price):,.0f} đ",
-                        capacity,
-                        room_status,
-                        type_id
-                    )
+            self.tree.insert(
+                "",
+                "end",
+                values=(
+                    room_id,
+                    room_number,
+                    room_type_name,
+                    f"{float(price):,.0f} đ",
+                    capacity,
+                    room_status,
+                    room_type_id
                 )
-
-        except Exception as e:
-            messagebox.showerror("Lỗi tải danh sách phòng", str(e))
-
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
+            )
 
     # =====================================
     # SEARCH AND FILTER
     # =====================================
+
     def search_rooms(self, event=None):
         keyword = self.search_var.get().strip()
         status = self.filter_status_var.get()
 
-        self.load_rooms(
-            keyword if keyword else None,
+        self.display_rooms(
+            self.rooms_data,
+            keyword,
             status
         )
 
     def reset_search(self):
         self.search_var.set("")
         self.filter_status_var.set("Tất cả")
+
+        self.load_room_types()
         self.load_rooms()
 
     # =====================================
     # SELECT ROOM
     # =====================================
+
     def select_room(self, event=None):
         selected = self.tree.selection()
 
         if not selected:
             return
 
-        values = self.tree.item(selected[0], "values")
+        values = self.tree.item(
+            selected[0],
+            "values"
+        )
 
-        self.selected_room_id = values[0]
+        self.selected_room_id = int(values[0])
+
         self.room_number_var.set(values[1])
 
         type_id = int(values[6])
 
-        for display, room_type_id in self.room_type_map.items():
+        for display_name, room_type_id in self.room_type_map.items():
             if room_type_id == type_id:
-                self.room_type_var.set(display)
+                self.room_type_var.set(display_name)
                 break
 
         self.status_var.set(values[5])
 
     # =====================================
-    # VALIDATE
+    # VALIDATE FORM
     # =====================================
+
     def validate_form(self):
         room_number = self.room_number_var.get().strip()
         room_type = self.room_type_var.get().strip()
@@ -540,67 +563,56 @@ class RoomsPage:
             )
             return None
 
-        return (
-            room_number,
-            self.room_type_map[room_type],
-            status
-        )
+        if status not in self.status_values:
+            messagebox.showwarning(
+                "Trạng thái không hợp lệ",
+                "Vui lòng chọn trạng thái phòng hợp lệ."
+            )
+            return None
+
+        return {
+            "so_phong": room_number,
+            "loai_phong_id": self.room_type_map[room_type],
+            "trang_thai": status
+        }
 
     # =====================================
-    # ADD ROOM
+    # ADD ROOM THROUGH API
     # =====================================
+
     def add_room(self):
         data = self.validate_form()
 
         if data is None:
             return
 
-        connection = get_connection()
-
-        if connection is None:
-            messagebox.showerror("Lỗi", "Không thể kết nối MySQL.")
-            return
-
-        cursor = None
-
         try:
-            cursor = connection.cursor()
-
-            cursor.execute("""
-                INSERT INTO phong (
-                    so_phong,
-                    loai_phong_id,
-                    trang_thai
-                )
-                VALUES (%s, %s, %s)
-            """, data)
-
-            connection.commit()
+            response = api_client.post(
+                "/api/rooms/",
+                data
+            )
 
             messagebox.showinfo(
                 "Thành công",
-                "Đã thêm phòng mới."
+                response.get(
+                    "message",
+                    "Thêm phòng thành công."
+                )
             )
 
             self.clear_form()
             self.load_rooms()
 
-        except Exception as e:
-            connection.rollback()
+        except APIError as e:
             messagebox.showerror(
                 "Không thể thêm phòng",
-                "Số phòng có thể đã tồn tại hoặc dữ liệu không hợp lệ.\n\n"
-                + str(e)
+                str(e)
             )
 
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
+    # =====================================
+    # UPDATE ROOM THROUGH API
+    # =====================================
 
-    # =====================================
-    # UPDATE ROOM
-    # =====================================
     def update_room(self):
         if self.selected_room_id is None:
             messagebox.showwarning(
@@ -614,50 +626,33 @@ class RoomsPage:
         if data is None:
             return
 
-        connection = get_connection()
-
-        if connection is None:
-            messagebox.showerror("Lỗi", "Không thể kết nối MySQL.")
-            return
-
-        cursor = None
-
         try:
-            cursor = connection.cursor()
-
-            cursor.execute("""
-                UPDATE phong
-                SET so_phong = %s,
-                    loai_phong_id = %s,
-                    trang_thai = %s
-                WHERE id = %s
-            """, (*data, self.selected_room_id))
-
-            connection.commit()
+            response = api_client.put(
+                f"/api/rooms/{self.selected_room_id}",
+                data
+            )
 
             messagebox.showinfo(
                 "Thành công",
-                "Đã cập nhật thông tin phòng."
+                response.get(
+                    "message",
+                    "Cập nhật phòng thành công."
+                )
             )
 
             self.clear_form()
             self.load_rooms()
 
-        except Exception as e:
-            connection.rollback()
+        except APIError as e:
             messagebox.showerror(
                 "Lỗi cập nhật",
-                "Không thể cập nhật phòng.\n\n" + str(e)
+                str(e)
             )
 
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
+    # =====================================
+    # DELETE ROOM THROUGH API
+    # =====================================
 
-    # =====================================
-    # DELETE ROOM
-    # =====================================
     def delete_room(self):
         if self.selected_room_id is None:
             messagebox.showwarning(
@@ -674,55 +669,40 @@ class RoomsPage:
         if not confirm:
             return
 
-        connection = get_connection()
-
-        if connection is None:
-            messagebox.showerror("Lỗi", "Không thể kết nối MySQL.")
-            return
-
-        cursor = None
-
         try:
-            cursor = connection.cursor()
-
-            cursor.execute(
-                "DELETE FROM phong WHERE id = %s",
-                (self.selected_room_id,)
+            response = api_client.delete(
+                f"/api/rooms/{self.selected_room_id}"
             )
-
-            connection.commit()
 
             messagebox.showinfo(
                 "Thành công",
-                "Đã xóa phòng."
+                response.get(
+                    "message",
+                    "Xóa phòng thành công."
+                )
             )
 
             self.clear_form()
             self.load_rooms()
 
-        except Exception as e:
-            connection.rollback()
+        except APIError as e:
             messagebox.showerror(
                 "Không thể xóa phòng",
-                "Phòng có thể đang được liên kết với booking hoặc dữ liệu khác.\n"
-                "Hãy kiểm tra các dữ liệu liên quan trước khi xóa.\n\n"
-                + str(e)
+                str(e)
             )
-
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
 
     # =====================================
     # CLEAR FORM
     # =====================================
+
     def clear_form(self):
         self.selected_room_id = None
+
         self.room_number_var.set("")
         self.room_type_var.set("")
         self.status_var.set("SAN_SANG")
 
-        self.tree.selection_remove(
-            self.tree.selection()
-        )
+        selected = self.tree.selection()
+
+        if selected:
+            self.tree.selection_remove(selected)

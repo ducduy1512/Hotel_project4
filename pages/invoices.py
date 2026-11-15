@@ -1,306 +1,174 @@
 
+import os
+import sys
 import tkinter as tk
-from tkinter import ttk, messagebox
-from database import get_connection
+from tkinter import ttk, messagebox, filedialog
+from decimal import Decimal
+from xml.sax.saxutils import escape
+
+from api_client import api_client, APIError
 
 
 class InvoicesPage:
+
     def __init__(self, parent):
         self.parent = parent
-        self.frame = tk.Frame(parent, bg="#F3F5F9")
-        self.frame.pack(fill="both", expand=True)
-
-        self.search_var = tk.StringVar()
-        self.status_var = tk.StringVar(value="Tất cả")
-
-        self.invoices = {}
         self.selected_invoice = None
 
-        self.build_ui()
-        self.load_invoices()
-
-    def build_ui(self):
-        # ================= HEADER =================
-        header = tk.Frame(self.frame, bg="#F3F5F9")
-        header.pack(fill="x", padx=25, pady=(20, 10))
-
-        tk.Label(
-            header,
-            text="QUẢN LÝ HÓA ĐƠN",
-            font=("Arial", 23, "bold"),
-            fg="#10233F",
-            bg="#F3F5F9"
-        ).pack(anchor="w")
-
-        tk.Label(
-            header,
-            text="Tra cứu hóa đơn và thông tin chi tiết thanh toán",
-            font=("Arial", 11),
-            fg="#8190A5",
-            bg="#F3F5F9"
-        ).pack(anchor="w", pady=(5, 0))
-
-        # ================= SEARCH =================
-        search_frame = tk.Frame(
-            self.frame,
-            bg="white",
-            highlightbackground="#DCE2EA",
-            highlightthickness=1
-        )
-        search_frame.pack(fill="x", padx=25, pady=10)
-
-        tk.Label(
-            search_frame,
-            text="Tìm kiếm:",
-            font=("Arial", 10, "bold"),
-            bg="white",
-            fg="#10233F"
-        ).pack(side="left", padx=(15, 8), pady=15)
-
-        search_entry = ttk.Entry(
-            search_frame,
-            textvariable=self.search_var,
-            width=30
-        )
-        search_entry.pack(side="left", padx=5, pady=15)
-        search_entry.bind(
-            "<KeyRelease>",
-            lambda event: self.load_invoices()
-        )
-
-        tk.Label(
-            search_frame,
-            text="Trạng thái thanh toán:",
-            font=("Arial", 10, "bold"),
-            bg="white",
-            fg="#10233F"
-        ).pack(side="left", padx=(20, 8))
-
-        status_combo = ttk.Combobox(
-            search_frame,
-            textvariable=self.status_var,
-            values=[
-                "Tất cả",
-                "CHO_THANH_TOAN",
-                "THANH_CONG",
-                "THAT_BAI",
-                "HOAN_TIEN"
-            ],
-            state="readonly",
-            width=20
-        )
-        status_combo.pack(side="left", padx=5)
-        status_combo.bind(
-            "<<ComboboxSelected>>",
-            lambda event: self.load_invoices()
-        )
-
-        tk.Button(
-            search_frame,
-            text="LÀM MỚI",
-            font=("Arial", 10, "bold"),
-            bg="#10233F",
-            fg="white",
-            activebackground="#243D5C",
-            activeforeground="white",
-            relief="flat",
-            cursor="hand2",
-            command=self.refresh
-        ).pack(side="left", padx=15, ipadx=12, ipady=8)
-
-        # ================= DETAILS =================
-        detail_frame = tk.LabelFrame(
-            self.frame,
-            text="  THÔNG TIN HÓA ĐƠN  ",
-            font=("Arial", 11, "bold"),
-            bg="white",
-            fg="#10233F",
-            padx=15,
-            pady=12
-        )
-        detail_frame.pack(fill="x", padx=25, pady=10)
-
-        self.detail_vars = {
-            "id": tk.StringVar(),
-            "pay_id": tk.StringVar(),
-            "booking_id": tk.StringVar(),
-            "customer": tk.StringVar(),
-            "room": tk.StringVar(),
-            "room_price": tk.StringVar(),
-            "service_price": tk.StringVar(),
-            "total": tk.StringVar(),
-            "date": tk.StringVar(),
-            "method": tk.StringVar(),
-            "status": tk.StringVar()
-        }
-
-        fields = [
-            ("Mã hóa đơn", "id"),
-            ("Mã thanh toán", "pay_id"),
-            ("Mã booking", "booking_id"),
-            ("Khách hàng", "customer"),
-            ("Số phòng", "room"),
-            ("Tiền phòng", "room_price"),
-            ("Tiền dịch vụ", "service_price"),
-            ("Tổng tiền", "total"),
-            ("Ngày lập", "date"),
-            ("Phương thức", "method"),
-            ("Trạng thái thanh toán", "status")
-        ]
-
-        for index, (label, key) in enumerate(fields):
-            row = index // 3
-            col = index % 3
-
-            cell = tk.Frame(detail_frame, bg="white")
-            cell.grid(
-                row=row,
-                column=col,
-                sticky="ew",
-                padx=8,
-                pady=7
-            )
-
-            tk.Label(
-                cell,
-                text=label,
-                font=("Arial", 9, "bold"),
-                bg="white",
-                fg="#35465E"
-            ).pack(anchor="w")
-
-            entry = ttk.Entry(
-                cell,
-                textvariable=self.detail_vars[key],
-                state="readonly",
-                width=35
-            )
-            entry.pack(fill="x", pady=(5, 0))
-
-        for col in range(3):
-            detail_frame.columnconfigure(col, weight=1)
-
-        # ================= BUTTONS =================
-        button_frame = tk.Frame(detail_frame, bg="white")
-        button_frame.grid(
-            row=4,
-            column=0,
-            columnspan=3,
-            sticky="w",
-            padx=8,
-            pady=(10, 2)
-        )
-
-        tk.Button(
-            button_frame,
-            text="XEM TRƯỚC HÓA ĐƠN",
-            font=("Arial", 10, "bold"),
-            bg="#D6A84F",
-            fg="#10233F",
-            relief="flat",
-            cursor="hand2",
-            command=self.preview_invoice
-        ).pack(side="left", ipadx=12, ipady=8)
-
-        tk.Button(
-            button_frame,
-            text="XÓA LỰA CHỌN",
-            font=("Arial", 10, "bold"),
-            bg="#8794A6",
-            fg="white",
-            relief="flat",
-            cursor="hand2",
-            command=self.clear_selection
-        ).pack(side="left", padx=12, ipadx=12, ipady=8)
-
-        # ================= INVOICE LIST =================
-        list_frame = tk.Frame(
-            self.frame,
-            bg="white",
-            highlightbackground="#DCE2EA",
-            highlightthickness=1
-        )
-        list_frame.pack(
+        self.frame = ttk.Frame(parent)
+        self.frame.pack(
             fill="both",
             expand=True,
-            padx=25,
-            pady=(5, 20)
+            padx=15,
+            pady=15
         )
 
-        tk.Label(
-            list_frame,
-            text="DANH SÁCH HÓA ĐƠN",
-            font=("Arial", 13, "bold"),
-            bg="white",
-            fg="#10233F"
-        ).pack(anchor="w", padx=15, pady=12)
+        self.create_widgets()
+        self.load_invoices()
+
+    # =================================================
+    # GIAO DIỆN
+    # =================================================
+
+    def create_widgets(self):
+
+        title = ttk.Label(
+            self.frame,
+            text="QUẢN LÝ HÓA ĐƠN",
+            font=("Arial", 18, "bold")
+        )
+        title.pack(pady=(0, 15))
+
+        # TÌM KIẾM
+
+        search_frame = ttk.LabelFrame(
+            self.frame,
+            text="Tìm kiếm hóa đơn",
+            padding=10
+        )
+        search_frame.pack(fill="x", pady=5)
+
+        ttk.Label(
+            search_frame,
+            text="Mã hóa đơn:"
+        ).pack(side="left", padx=5)
+
+        self.search_var = tk.StringVar()
+
+        ttk.Entry(
+            search_frame,
+            textvariable=self.search_var,
+            width=20
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            search_frame,
+            text="Tìm kiếm",
+            command=self.search_invoice
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            search_frame,
+            text="Hiển thị tất cả",
+            command=self.load_invoices
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            search_frame,
+            text="Làm mới",
+            command=self.load_invoices
+        ).pack(side="left", padx=5)
+
+        # NÚT CHỨC NĂNG
+        # Đặt phía trên bảng để luôn hiển thị.
+
+        button_frame = ttk.Frame(self.frame)
+        button_frame.pack(fill="x", pady=(8, 4))
+
+        ttk.Button(
+            button_frame,
+            text="Xuất hóa đơn PDF",
+            command=self.export_invoice_pdf
+        ).pack(side="right", padx=5)
+
+        ttk.Button(
+            button_frame,
+            text="Xóa thông tin chi tiết",
+            command=self.clear_detail
+        ).pack(side="right", padx=5)
+
+        # BẢNG HÓA ĐƠN
+
+        table_frame = ttk.Frame(self.frame)
+        table_frame.pack(
+            fill="both",
+            expand=True,
+            pady=10
+        )
 
         columns = (
             "id",
             "pay_id",
             "booking_id",
-            "customer",
-            "room",
-            "room_price",
-            "service_price",
-            "total",
-            "date",
-            "status"
+            "ho_ten",
+            "so_phong",
+            "tien_phong",
+            "tien_dich_vu",
+            "tong_tien",
+            "ngay_lap"
         )
 
-        table_container = tk.Frame(list_frame, bg="white")
-        table_container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-
         self.tree = ttk.Treeview(
-            table_container,
+            table_frame,
             columns=columns,
             show="headings",
-            height=12
+            height=8
         )
 
         headings = {
-            "id": "Mã HĐ",
-            "pay_id": "Mã thanh toán",
-            "booking_id": "Mã booking",
-            "customer": "Khách hàng",
-            "room": "Phòng",
-            "room_price": "Tiền phòng",
-            "service_price": "Tiền dịch vụ",
-            "total": "Tổng tiền",
-            "date": "Ngày lập",
-            "status": "Trạng thái"
+            "id": "Invoice ID",
+            "pay_id": "Payment ID",
+            "booking_id": "Booking ID",
+            "ho_ten": "Khách hàng",
+            "so_phong": "Số phòng",
+            "tien_phong": "Tiền phòng",
+            "tien_dich_vu": "Tiền dịch vụ",
+            "tong_tien": "Tổng tiền",
+            "ngay_lap": "Ngày lập"
         }
 
         widths = {
-            "id": 65,
+            "id": 85,
             "pay_id": 90,
             "booking_id": 90,
-            "customer": 145,
-            "room": 65,
-            "room_price": 110,
-            "service_price": 115,
-            "total": 120,
-            "date": 145,
-            "status": 145
+            "ho_ten": 150,
+            "so_phong": 80,
+            "tien_phong": 120,
+            "tien_dich_vu": 120,
+            "tong_tien": 130,
+            "ngay_lap": 160
         }
 
         for col in columns:
-            self.tree.heading(col, text=headings[col])
+            self.tree.heading(
+                col,
+                text=headings[col]
+            )
+
             self.tree.column(
                 col,
                 width=widths[col],
-                minwidth=60,
                 anchor="center"
             )
 
         scrollbar_y = ttk.Scrollbar(
-            table_container,
+            table_frame,
             orient="vertical",
             command=self.tree.yview
         )
 
         scrollbar_x = ttk.Scrollbar(
-            table_container,
+            self.frame,
             orient="horizontal",
             command=self.tree.xview
         )
@@ -310,331 +178,758 @@ class InvoicesPage:
             xscrollcommand=scrollbar_x.set
         )
 
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        scrollbar_y.grid(row=0, column=1, sticky="ns")
-        scrollbar_x.grid(row=1, column=0, sticky="ew")
+        self.tree.pack(
+            side="left",
+            fill="both",
+            expand=True
+        )
 
-        table_container.rowconfigure(0, weight=1)
-        table_container.columnconfigure(0, weight=1)
+        scrollbar_y.pack(
+            side="right",
+            fill="y"
+        )
+
+        scrollbar_x.pack(fill="x")
 
         self.tree.bind(
             "<<TreeviewSelect>>",
             self.on_select
         )
 
-    # ================= LOAD DATA =================
-    def load_invoices(self):
-        connection = get_connection()
+        # CHI TIẾT HÓA ĐƠN
 
-        if connection is None:
-            messagebox.showerror(
-                "Lỗi kết nối",
-                "Không thể kết nối đến MySQL."
+        detail_frame = ttk.LabelFrame(
+            self.frame,
+            text="Thông tin hóa đơn được chọn",
+            padding=12
+        )
+        detail_frame.pack(fill="x", pady=5)
+
+        self.detail_labels = {}
+
+        fields = [
+            ("id", "Mã hóa đơn"),
+            ("pay_id", "Mã thanh toán"),
+            ("booking_id", "Mã booking"),
+            ("ho_ten", "Khách hàng"),
+            ("so_phong", "Số phòng"),
+            ("tong_tien", "Tổng thanh toán")
+        ]
+
+        for index, (key, label_text) in enumerate(fields):
+
+            row = index // 3
+            col = (index % 3) * 2
+
+            ttk.Label(
+                detail_frame,
+                text=label_text + ":"
+            ).grid(
+                row=row,
+                column=col,
+                padx=5,
+                pady=6,
+                sticky="w"
             )
-            return
 
-        cursor = None
+            value_label = ttk.Label(
+                detail_frame,
+                text="",
+                font=("Arial", 10, "bold")
+            )
+
+            value_label.grid(
+                row=row,
+                column=col + 1,
+                padx=5,
+                pady=6,
+                sticky="w"
+            )
+
+            self.detail_labels[key] = value_label
+
+    # =================================================
+    # HÀM HỖ TRỢ
+    # =================================================
+
+    @staticmethod
+    def format_money(value):
 
         try:
-            cursor = connection.cursor(dictionary=True)
+            number = Decimal(str(value or 0))
+            return f"{number:,.0f} đ"
 
-            sql = """
-                SELECT
-                    h.id AS invoice_id,
-                    h.pay_id,
-                    p.booking_id,
-                    k.ho_ten AS customer_name,
-                    ph.so_phong,
-                    h.tien_phong,
-                    h.tien_dich_vu,
-                    h.tong_tien,
-                    h.ngay_lap,
-                    p.method,
-                    p.status
-                FROM hoadon h
-                JOIN pay p ON h.pay_id = p.id
-                JOIN booking b ON p.booking_id = b.id
-                JOIN khach k ON b.khach_id = k.id
-                JOIN phong ph ON b.phong_id = ph.id
-                WHERE 1 = 1
-            """
+        except Exception:
+            return "0 đ"
 
-            params = []
+    @staticmethod
+    def format_date(value):
 
-            keyword = self.search_var.get().strip()
+        if value is None:
+            return ""
 
-            if keyword:
-                sql += """
-                    AND (
-                        CAST(h.id AS CHAR) LIKE %s
-                        OR CAST(h.pay_id AS CHAR) LIKE %s
-                        OR CAST(p.booking_id AS CHAR) LIKE %s
-                        OR k.ho_ten LIKE %s
-                        OR CAST(ph.so_phong AS CHAR) LIKE %s
-                    )
-                """
+        return str(value)
 
-                search_value = f"%{keyword}%"
-                params.extend([search_value] * 5)
+    @staticmethod
+    def safe_text(value):
 
-            selected_status = self.status_var.get()
+        return escape(
+            str(value if value is not None else "")
+        )
 
-            if selected_status != "Tất cả":
-                sql += " AND p.status = %s"
-                params.append(selected_status)
+    @staticmethod
+    def extract_list(response):
 
-            sql += " ORDER BY h.id DESC"
+        if isinstance(response, list):
+            return response
 
-            cursor.execute(sql, params)
-            rows = cursor.fetchall()
+        if isinstance(response, dict):
+            invoices = response.get("invoices")
 
-            for item in self.tree.get_children():
-                self.tree.delete(item)
+            if isinstance(invoices, list):
+                return invoices
 
-            self.invoices.clear()
+        return []
 
-            for row in rows:
-                invoice_id = row["invoice_id"]
-                self.invoices[invoice_id] = row
+    # =================================================
+    # TẢI DANH SÁCH HÓA ĐƠN
+    # =================================================
 
-                self.tree.insert(
-                    "",
-                    "end",
-                    iid=str(invoice_id),
-                    values=(
-                        invoice_id,
-                        row["pay_id"],
-                        row["booking_id"],
-                        row["customer_name"],
-                        row["so_phong"],
-                        self.format_money(row["tien_phong"]),
-                        self.format_money(row["tien_dich_vu"]),
-                        self.format_money(row["tong_tien"]),
-                        row["ngay_lap"],
-                        row["status"]
-                    )
-                )
+    def load_invoices(self):
 
-        except Exception as e:
+        try:
+            response = api_client.get("/api/invoices/")
+            invoices = self.extract_list(response)
+
+            self.display_invoices(invoices)
+
+        except APIError as error:
             messagebox.showerror(
-                "Lỗi",
-                f"Không thể tải danh sách hóa đơn:\n{e}"
+                "Lỗi tải hóa đơn",
+                str(error)
             )
 
-        finally:
-            if cursor:
-                cursor.close()
-            connection.close()
+    def display_invoices(self, invoices):
 
-    # ================= SELECT INVOICE =================
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        self.clear_detail()
+
+        for invoice in invoices:
+
+            invoice_id = invoice.get("id")
+
+            if invoice_id is None:
+                continue
+
+            self.tree.insert(
+                "",
+                "end",
+                iid=str(invoice_id),
+                values=(
+                    invoice_id,
+                    invoice.get("pay_id", ""),
+                    invoice.get("booking_id", ""),
+                    invoice.get("ho_ten", ""),
+                    invoice.get("so_phong", ""),
+                    self.format_money(
+                        invoice.get("tien_phong", 0)
+                    ),
+                    self.format_money(
+                        invoice.get("tien_dich_vu", 0)
+                    ),
+                    self.format_money(
+                        invoice.get("tong_tien", 0)
+                    ),
+                    self.format_date(
+                        invoice.get("ngay_lap", "")
+                    )
+                )
+            )
+
+    # =================================================
+    # CHỌN HÓA ĐƠN
+    # =================================================
+
     def on_select(self, event=None):
+
         selected = self.tree.selection()
 
         if not selected:
             return
 
-        invoice_id = int(selected[0])
-        row = self.invoices.get(invoice_id)
+        invoice_id = selected[0]
 
-        if not row:
-            return
+        try:
+            response = api_client.get(
+                f"/api/invoices/{invoice_id}"
+            )
 
-        self.selected_invoice = row
+            invoice = response.get("invoice")
 
-        values = {
-            "id": row["invoice_id"],
-            "pay_id": row["pay_id"],
-            "booking_id": row["booking_id"],
-            "customer": row["customer_name"],
-            "room": row["so_phong"],
-            "room_price": self.format_money(row["tien_phong"]),
-            "service_price": self.format_money(row["tien_dich_vu"]),
-            "total": self.format_money(row["tong_tien"]),
-            "date": row["ngay_lap"],
-            "method": row["method"],
-            "status": row["status"]
-        }
+            if not invoice:
+                raise APIError(
+                    "API không trả về thông tin hóa đơn."
+                )
 
-        for key, value in values.items():
-            self.detail_vars[key].set(str(value))
+            self.selected_invoice = invoice
 
-    # ================= PREVIEW INVOICE =================
-    def preview_invoice(self):
-        if not self.selected_invoice:
+            display_fields = {
+                "id": invoice.get("id"),
+                "pay_id": invoice.get("pay_id"),
+                "booking_id": invoice.get("booking_id"),
+                "ho_ten": invoice.get("ho_ten"),
+                "so_phong": invoice.get("so_phong"),
+                "tong_tien": self.format_money(
+                    invoice.get("tong_tien", 0)
+                )
+            }
+
+            for key, value in display_fields.items():
+
+                self.detail_labels[key].config(
+                    text=str(
+                        value if value is not None else ""
+                    )
+                )
+
+        except APIError as error:
+
+            messagebox.showerror(
+                "Lỗi API",
+                str(error)
+            )
+
+    # =================================================
+    # TÌM KIẾM HÓA ĐƠN
+    # =================================================
+
+    def search_invoice(self):
+
+        keyword = self.search_var.get().strip()
+
+        if not keyword:
             messagebox.showwarning(
                 "Thông báo",
-                "Vui lòng chọn một hóa đơn trong danh sách."
+                "Vui lòng nhập mã hóa đơn."
             )
             return
 
-        row = self.selected_invoice
+        try:
+            response = api_client.get("/api/invoices/")
+            invoices = self.extract_list(response)
 
-        window = tk.Toplevel(self.frame)
-        window.title(f"Hóa đơn #{row['invoice_id']}")
-        window.geometry("520x620")
-        window.configure(bg="white")
-        window.transient(self.frame.winfo_toplevel())
+            filtered = [
+                invoice for invoice in invoices
+                if str(invoice.get("id", "")) == keyword
+            ]
 
-        tk.Label(
-            window,
-            text="H HOTEL",
-            font=("Arial", 25, "bold"),
-            fg="#D6A84F",
-            bg="white"
-        ).pack(pady=(25, 5))
+            self.display_invoices(filtered)
 
-        tk.Label(
-            window,
-            text="HÓA ĐƠN THANH TOÁN",
-            font=("Arial", 17, "bold"),
-            fg="#10233F",
-            bg="white"
-        ).pack(pady=5)
+            if not filtered:
+                messagebox.showinfo(
+                    "Kết quả",
+                    "Không tìm thấy hóa đơn."
+                )
 
-        tk.Label(
-            window,
-            text=f"Mã hóa đơn: #{row['invoice_id']}",
-            font=("Arial", 11),
-            bg="white"
-        ).pack(pady=5)
+        except APIError as error:
 
-        tk.Label(
-            window,
-            text=f"Ngày lập: {row['ngay_lap']}",
-            font=("Arial", 10),
-            bg="white"
-        ).pack(pady=3)
+            messagebox.showerror(
+                "Lỗi API",
+                str(error)
+            )
 
-        tk.Frame(
-            window,
-            bg="#D6A84F",
-            height=2
-        ).pack(fill="x", padx=30, pady=15)
+    # =================================================
+    # XUẤT HÓA ĐƠN PDF
+    # =================================================
 
-        receipt = tk.Frame(window, bg="white")
-        receipt.pack(fill="x", padx=40)
+    def export_invoice_pdf(self):
 
-        details = [
-            ("Mã thanh toán", row["pay_id"]),
-            ("Mã booking", row["booking_id"]),
-            ("Khách hàng", row["customer_name"]),
-            ("Số phòng", row["so_phong"]),
-            ("Phương thức", row["method"]),
-            ("Trạng thái", row["status"])
+        if not self.selected_invoice:
+            messagebox.showwarning(
+                "Chưa chọn hóa đơn",
+                "Vui lòng chọn một hóa đơn trong bảng trước."
+            )
+            return
+
+        try:
+            from reportlab.lib import colors
+            from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.styles import (
+                getSampleStyleSheet,
+                ParagraphStyle
+            )
+            from reportlab.lib.units import mm
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+            from reportlab.platypus import (
+                SimpleDocTemplate,
+                Paragraph,
+                Spacer,
+                Table,
+                TableStyle,
+                HRFlowable
+            )
+
+        except ImportError:
+            messagebox.showerror(
+                "Thiếu thư viện",
+                "Chưa cài đặt ReportLab.\n\n"
+                "Chạy lệnh trong Terminal:\n"
+                ".venv\\Scripts\\python.exe -m pip install reportlab"
+            )
+            return
+
+        # Kiểm tra font Arial trên Windows
+
+        font_regular = r"C:\Windows\Fonts\arial.ttf"
+        font_bold = r"C:\Windows\Fonts\arialbd.ttf"
+
+        if not os.path.exists(font_regular):
+            messagebox.showerror(
+                "Không tìm thấy font",
+                f"Không tìm thấy font:\n{font_regular}"
+            )
+            return
+
+        if not os.path.exists(font_bold):
+            messagebox.showerror(
+                "Không tìm thấy font",
+                f"Không tìm thấy font:\n{font_bold}"
+            )
+            return
+
+        try:
+            if "ArialVN" not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(
+                    TTFont("ArialVN", font_regular)
+                )
+
+            if "ArialVN-Bold" not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(
+                    TTFont("ArialVN-Bold", font_bold)
+                )
+
+            pdfmetrics.registerFontFamily(
+                "ArialVN",
+                normal="ArialVN",
+                bold="ArialVN-Bold",
+                italic="ArialVN",
+                boldItalic="ArialVN-Bold"
+            )
+
+        except Exception as error:
+            messagebox.showerror(
+                "Lỗi font",
+                f"Không thể nạp font Arial.\n{error}"
+            )
+            return
+
+        invoice = self.selected_invoice
+        invoice_id = invoice.get("id", "")
+
+        default_name = f"HoaDon_{invoice_id}.pdf"
+
+        save_path = filedialog.asksaveasfilename(
+            title="Lưu hóa đơn PDF",
+            initialfile=default_name,
+            defaultextension=".pdf",
+            filetypes=[
+                ("PDF files", "*.pdf")
+            ]
+        )
+
+        if not save_path:
+            return
+
+        try:
+            self.create_invoice_pdf(
+                invoice=invoice,
+                save_path=save_path,
+                colors=colors,
+                A4=A4,
+                mm=mm,
+                getSampleStyleSheet=getSampleStyleSheet,
+                ParagraphStyle=ParagraphStyle,
+                SimpleDocTemplate=SimpleDocTemplate,
+                Paragraph=Paragraph,
+                Spacer=Spacer,
+                Table=Table,
+                TableStyle=TableStyle,
+                HRFlowable=HRFlowable,
+                TA_CENTER=TA_CENTER,
+                TA_RIGHT=TA_RIGHT
+            )
+
+            messagebox.showinfo(
+                "Xuất hóa đơn thành công",
+                f"Đã xuất hóa đơn #{invoice_id}.\n\n"
+                f"Đường dẫn:\n{save_path}"
+            )
+
+            # Tự động mở file PDF
+
+            try:
+                if sys.platform.startswith("win"):
+                    os.startfile(save_path)
+
+                elif sys.platform == "darwin":
+                    import subprocess
+                    subprocess.Popen(["open", save_path])
+
+                else:
+                    import subprocess
+                    subprocess.Popen(["xdg-open", save_path])
+
+            except Exception:
+                pass
+
+        except Exception as error:
+            messagebox.showerror(
+                "Lỗi xuất hóa đơn",
+                f"Không thể tạo PDF.\n\nChi tiết: {error}"
+            )
+
+    # =================================================
+    # THIẾT KẾ PDF
+    # =================================================
+
+    def create_invoice_pdf(
+        self,
+        invoice,
+        save_path,
+        colors,
+        A4,
+        mm,
+        getSampleStyleSheet,
+        ParagraphStyle,
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+        HRFlowable,
+        TA_CENTER,
+        TA_RIGHT
+    ):
+
+        gold = colors.HexColor("#D9A441")
+        navy = colors.HexColor("#172B4D")
+        gray = colors.HexColor("#8190A5")
+        light_gray = colors.HexColor("#DCE3EC")
+
+        doc = SimpleDocTemplate(
+            save_path,
+            pagesize=A4,
+            rightMargin=20 * mm,
+            leftMargin=20 * mm,
+            topMargin=17 * mm,
+            bottomMargin=17 * mm,
+            title=f"Hóa đơn thanh toán #{invoice.get('id')}",
+            author="H HOTEL"
+        )
+
+        styles = getSampleStyleSheet()
+
+        hotel_style = ParagraphStyle(
+            "HotelVN",
+            parent=styles["Title"],
+            fontName="ArialVN-Bold",
+            fontSize=27,
+            leading=32,
+            alignment=TA_CENTER,
+            textColor=gold,
+            spaceAfter=8
+        )
+
+        title_style = ParagraphStyle(
+            "InvoiceTitleVN",
+            parent=styles["Heading1"],
+            fontName="ArialVN-Bold",
+            fontSize=19,
+            leading=24,
+            alignment=TA_CENTER,
+            textColor=navy,
+            spaceAfter=12
+        )
+
+        center_style = ParagraphStyle(
+            "CenterVN",
+            parent=styles["Normal"],
+            fontName="ArialVN",
+            fontSize=10,
+            leading=17,
+            alignment=TA_CENTER,
+            textColor=navy
+        )
+
+        label_style = ParagraphStyle(
+            "LabelVN",
+            parent=styles["Normal"],
+            fontName="ArialVN",
+            fontSize=10,
+            leading=17,
+            textColor=gray
+        )
+
+        value_style = ParagraphStyle(
+            "ValueVN",
+            parent=styles["Normal"],
+            fontName="ArialVN-Bold",
+            fontSize=10,
+            leading=17,
+            alignment=TA_RIGHT,
+            textColor=navy
+        )
+
+        normal_style = ParagraphStyle(
+            "NormalVN",
+            parent=styles["Normal"],
+            fontName="ArialVN",
+            fontSize=11,
+            leading=18,
+            textColor=navy
+        )
+
+        total_label_style = ParagraphStyle(
+            "TotalLabelVN",
+            parent=styles["Normal"],
+            fontName="ArialVN-Bold",
+            fontSize=13,
+            leading=19,
+            textColor=navy
+        )
+
+        total_value_style = ParagraphStyle(
+            "TotalValueVN",
+            parent=styles["Normal"],
+            fontName="ArialVN-Bold",
+            fontSize=15,
+            leading=20,
+            alignment=TA_RIGHT,
+            textColor=gold
+        )
+
+        def money(value):
+            try:
+                return f"{Decimal(str(value or 0)):,.0f} đ"
+            except Exception:
+                return "0 đ"
+
+        def p(value, style):
+            return Paragraph(
+                self.safe_text(value),
+                style
+            )
+
+        # LẤY DỮ LIỆU
+
+        invoice_id = invoice.get("id", "")
+        pay_id = invoice.get("pay_id", "")
+        booking_id = invoice.get("booking_id", "")
+
+        invoice_date = self.format_date(
+            invoice.get("ngay_lap", "")
+        )
+
+        customer_name = invoice.get("ho_ten", "")
+        room_number = invoice.get("so_phong", "")
+
+        method = invoice.get("method", "")
+        payment_status = invoice.get("payment_status", "")
+
+        room_money = money(
+            invoice.get("tien_phong", 0)
+        )
+
+        service_money = money(
+            invoice.get("tien_dich_vu", 0)
+        )
+
+        total_money = money(
+            invoice.get("tong_tien", 0)
+        )
+
+        elements = []
+
+        # HEADER
+
+        elements.append(
+            p("H HOTEL", hotel_style)
+        )
+
+        elements.append(
+            p("HÓA ĐƠN THANH TOÁN", title_style)
+        )
+
+        elements.append(
+            p(f"Mã hóa đơn: #{invoice_id}", center_style)
+        )
+
+        elements.append(
+            p(f"Ngày lập: {invoice_date}", center_style)
+        )
+
+        elements.append(Spacer(1, 9 * mm))
+
+        elements.append(
+            HRFlowable(
+                width="100%",
+                thickness=1.5,
+                color=gold
+            )
+        )
+
+        elements.append(Spacer(1, 7 * mm))
+
+        # THÔNG TIN THANH TOÁN
+
+        information = [
+            ("Mã thanh toán", pay_id),
+            ("Mã booking", booking_id),
+            ("Khách hàng", customer_name),
+            ("Số phòng", room_number),
+            ("Phương thức", method),
+            ("Trạng thái", payment_status)
         ]
 
-        for label, value in details:
-            line = tk.Frame(receipt, bg="white")
-            line.pack(fill="x", pady=7)
+        info_data = []
 
-            tk.Label(
-                line,
-                text=label,
-                font=("Arial", 10),
-                bg="white",
-                fg="#64748B"
-            ).pack(side="left")
+        for label, value in information:
+            info_data.append([
+                p(label, label_style),
+                p(value, value_style)
+            ])
 
-            tk.Label(
-                line,
-                text=str(value),
-                font=("Arial", 10, "bold"),
-                bg="white",
-                fg="#10233F"
-            ).pack(side="right")
+        info_table = Table(
+            info_data,
+            colWidths=[75 * mm, 95 * mm],
+            rowHeights=[12 * mm] * len(info_data)
+        )
 
-        tk.Frame(
-            window,
-            bg="#DCE2EA",
-            height=1
-        ).pack(fill="x", padx=30, pady=15)
+        info_table.setStyle(
+            TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3)
+            ])
+        )
 
-        amounts = [
-            ("Tiền phòng", row["tien_phong"]),
-            ("Tiền dịch vụ", row["tien_dich_vu"])
+        elements.append(info_table)
+
+        elements.append(Spacer(1, 5 * mm))
+
+        elements.append(
+            HRFlowable(
+                width="100%",
+                thickness=0.8,
+                color=light_gray
+            )
+        )
+
+        elements.append(Spacer(1, 5 * mm))
+
+        # CHI TIẾT THANH TOÁN
+
+        amount_data = [
+            [
+                p("Tiền phòng", normal_style),
+                p(room_money, value_style)
+            ],
+            [
+                p("Tiền dịch vụ", normal_style),
+                p(service_money, value_style)
+            ]
         ]
 
-        for label, amount in amounts:
-            line = tk.Frame(window, bg="white")
-            line.pack(fill="x", padx=40, pady=6)
+        amount_table = Table(
+            amount_data,
+            colWidths=[85 * mm, 85 * mm],
+            rowHeights=[12 * mm, 12 * mm]
+        )
 
-            tk.Label(
-                line,
-                text=label,
-                font=("Arial", 11),
-                bg="white"
-            ).pack(side="left")
+        amount_table.setStyle(
+            TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3)
+            ])
+        )
 
-            tk.Label(
-                line,
-                text=self.format_money(amount),
-                font=("Arial", 11),
-                bg="white"
-            ).pack(side="right")
+        elements.append(amount_table)
 
-        tk.Frame(
-            window,
-            bg="#DCE2EA",
-            height=1
-        ).pack(fill="x", padx=30, pady=15)
+        elements.append(Spacer(1, 5 * mm))
 
-        total_frame = tk.Frame(window, bg="white")
-        total_frame.pack(fill="x", padx=40, pady=5)
+        elements.append(
+            HRFlowable(
+                width="100%",
+                thickness=0.8,
+                color=light_gray
+            )
+        )
 
-        tk.Label(
-            total_frame,
-            text="TỔNG THANH TOÁN",
-            font=("Arial", 12, "bold"),
-            bg="white",
-            fg="#10233F"
-        ).pack(side="left")
+        elements.append(Spacer(1, 8 * mm))
 
-        tk.Label(
-            total_frame,
-            text=self.format_money(row["tong_tien"]),
-            font=("Arial", 14, "bold"),
-            bg="white",
-            fg="#B8862D"
-        ).pack(side="right")
+        # TỔNG THANH TOÁN
 
-        tk.Label(
-            window,
-            text="Cảm ơn quý khách đã sử dụng dịch vụ!",
-            font=("Arial", 10, "italic"),
-            fg="#8190A5",
-            bg="white"
-        ).pack(pady=25)
+        total_data = [[
+            p("TỔNG THANH TOÁN", total_label_style),
+            p(total_money, total_value_style)
+        ]]
 
-        tk.Button(
-            window,
-            text="ĐÓNG",
-            font=("Arial", 10, "bold"),
-            bg="#10233F",
-            fg="white",
-            relief="flat",
-            cursor="hand2",
-            command=window.destroy
-        ).pack(ipadx=25, ipady=8, pady=10)
+        total_table = Table(
+            total_data,
+            colWidths=[85 * mm, 85 * mm]
+        )
 
-    # ================= CLEAR =================
-    def clear_selection(self):
-        self.tree.selection_remove(self.tree.selection())
+        total_table.setStyle(
+            TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5)
+            ])
+        )
+
+        elements.append(total_table)
+
+        elements.append(Spacer(1, 20 * mm))
+
+        # FOOTER
+
+        elements.append(
+            HRFlowable(
+                width="100%",
+                thickness=0.8,
+                color=light_gray
+            )
+        )
+
+        elements.append(Spacer(1, 5 * mm))
+
+        elements.append(
+            p(
+                "Cảm ơn quý khách đã sử dụng dịch vụ của H HOTEL!",
+                center_style
+            )
+        )
+
+        doc.build(elements)
+
+    # =================================================
+    # XÓA THÔNG TIN CHI TIẾT
+    # =================================================
+
+    def clear_detail(self):
+
         self.selected_invoice = None
 
-        for var in self.detail_vars.values():
-            var.set("")
-
-    # ================= REFRESH =================
-    def refresh(self):
-        self.search_var.set("")
-        self.status_var.set("Tất cả")
-        self.clear_selection()
-        self.load_invoices()
-
-    # ================= FORMAT MONEY =================
-    @staticmethod
-    def format_money(value):
-        if value is None:
-            value = 0
-
-        return f"{float(value):,.0f} đ"
+        for label in self.detail_labels.values():
+            label.config(text="")

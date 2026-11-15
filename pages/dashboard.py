@@ -1,440 +1,276 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import get_connection
+
+from api_client import api_client, APIError
 
 
-# ==============================
-# MÀU SẮC GIAO DIỆN
-# ==============================
-
-NAVY = "#101D32"
-NAVY_LIGHT = "#1B2D49"
-GOLD = "#C9A45C"
-WHITE = "#FFFFFF"
-BACKGROUND = "#F4F6F9"
-TEXT = "#263449"
-MUTED = "#8993A2"
-
-
-class Dashboard:
-
+class DashboardPage:
     def __init__(self, parent):
-
         self.parent = parent
 
-        self.frame = tk.Frame(
-            parent,
-            bg=BACKGROUND
-        )
+        self.frame = ttk.Frame(parent)
+        self.frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-        self.frame.pack(
-            fill="both",
-            expand=True
-        )
+        self.create_widgets()
+        self.load_dashboard()
 
-        self.create_interface()
-        self.load_data()
-
-    # ==============================
-    # TẠO GIAO DIỆN
-    # ==============================
-
-    def create_interface(self):
-
-        # Tiêu đề
-        header = tk.Frame(
+    def create_widgets(self):
+        title = ttk.Label(
             self.frame,
-            bg=BACKGROUND
+            text="TỔNG QUAN QUẢN LÝ KHÁCH SẠN",
+            font=("Arial", 20, "bold")
         )
-        header.pack(
-            fill="x",
-            padx=30,
-            pady=(25, 15)
-        )
+        title.pack(pady=(0, 5))
 
-        tk.Label(
-            header,
-            text="TỔNG QUAN",
-            font=("Arial", 22, "bold"),
-            fg=NAVY,
-            bg=BACKGROUND
-        ).pack(anchor="w")
-
-        tk.Label(
-            header,
-            text="Tổng quan hoạt động khách sạn",
-            font=("Arial", 11),
-            fg=MUTED,
-            bg=BACKGROUND
-        ).pack(anchor="w", pady=5)
-
-        # Khu vực thẻ thống kê
-        self.stats_frame = tk.Frame(
+        subtitle = ttk.Label(
             self.frame,
-            bg=BACKGROUND
+            text="Theo dõi tình hình hoạt động của khách sạn",
+            font=("Arial", 10)
         )
+        subtitle.pack(pady=(0, 20))
 
-        self.stats_frame.pack(
-            fill="x",
-            padx=25,
-            pady=10
-        )
+        # Khu vực các thẻ thống kê
+        cards_frame = ttk.Frame(self.frame)
+        cards_frame.pack(fill="x", pady=10)
 
-        self.stat_values = {}
+        self.stat_labels = {}
 
         cards = [
-            ("customers", "KHÁCH HÀNG"),
-            ("rooms", "TỔNG SỐ PHÒNG"),
-            ("bookings", "ĐẶT PHÒNG"),
-            ("revenue", "DOANH THU")
+            ("rooms", "TỔNG SỐ PHÒNG", "0"),
+            ("available", "PHÒNG SẴN SÀNG", "0"),
+            ("customers", "KHÁCH HÀNG", "0"),
+            ("bookings", "TỔNG BOOKING", "0"),
+            ("payments", "TỔNG THANH TOÁN", "0"),
+            ("revenue", "DOANH THU", "0 VNĐ")
         ]
 
-        for index, (key, title) in enumerate(cards):
+        for index, (key, heading, initial) in enumerate(cards):
+            row = index // 3
+            column = index % 3
 
-            card = tk.Frame(
-                self.stats_frame,
-                bg=WHITE,
-                highlightbackground="#E5E9EF",
-                highlightthickness=1
+            card = ttk.LabelFrame(
+                cards_frame,
+                text=heading,
+                padding=15
             )
-
             card.grid(
-                row=0,
-                column=index,
-                padx=7,
+                row=row,
+                column=column,
+                padx=8,
+                pady=8,
                 sticky="nsew"
             )
 
-            self.stats_frame.grid_columnconfigure(
-                index,
-                weight=1
-            )
-
-            tk.Label(
+            value_label = ttk.Label(
                 card,
-                text=title,
-                font=("Arial", 10, "bold"),
-                fg=MUTED,
-                bg=WHITE
-            ).pack(
-                anchor="w",
-                padx=18,
-                pady=(18, 8)
+                text=initial,
+                font=("Arial", 18, "bold")
             )
+            value_label.pack(pady=10)
 
-            value_label = tk.Label(
-                card,
-                text="0",
-                font=("Arial", 23, "bold"),
-                fg=GOLD,
-                bg=WHITE
-            )
+            self.stat_labels[key] = value_label
+            cards_frame.columnconfigure(column, weight=1)
 
-            value_label.pack(
-                anchor="w",
-                padx=18,
-                pady=(0, 18)
-            )
-
-            self.stat_values[key] = value_label
-
-        # Khu vực thông tin
-        content = tk.Frame(
+        # Thông tin bổ sung
+        info_frame = ttk.LabelFrame(
             self.frame,
-            bg=BACKGROUND
+            text="Tình hình thanh toán",
+            padding=15
         )
+        info_frame.pack(fill="x", pady=20)
 
-        content.pack(
-            fill="both",
-            expand=True,
-            padx=30,
-            pady=20
+        self.success_payment_label = ttk.Label(
+            info_frame,
+            text="Thanh toán thành công: 0",
+            font=("Arial", 11, "bold")
         )
+        self.success_payment_label.pack(anchor="w", pady=5)
 
-        # Trạng thái phòng
-        room_panel = tk.Frame(
-            content,
-            bg=WHITE,
-            highlightbackground="#E5E9EF",
-            highlightthickness=1
+        self.pending_payment_label = ttk.Label(
+            info_frame,
+            text="Đang chờ thanh toán: 0",
+            font=("Arial", 11, "bold")
         )
+        self.pending_payment_label.pack(anchor="w", pady=5)
 
-        room_panel.pack(
-            side="left",
-            fill="y",
-            padx=(0, 10)
+        # Nút cập nhật
+        button_frame = ttk.Frame(self.frame)
+        button_frame.pack(fill="x", pady=10)
+
+        ttk.Button(
+            button_frame,
+            text="CẬP NHẬT DỮ LIỆU",
+            command=self.load_dashboard
+        ).pack(side="left", padx=5)
+
+        self.status_label = ttk.Label(
+            button_frame,
+            text="",
+            foreground="gray"
         )
+        self.status_label.pack(side="left", padx=15)
 
-        tk.Label(
-            room_panel,
-            text="TRẠNG THÁI PHÒNG",
-            font=("Arial", 12, "bold"),
-            fg=NAVY,
-            bg=WHITE
-        ).pack(
-            anchor="w",
-            padx=18,
-            pady=18
-        )
+    @staticmethod
+    def extract_list(response):
+        if isinstance(response, list):
+            return response
 
-        self.room_text = tk.Text(
-            room_panel,
-            width=27,
-            height=12,
-            font=("Arial", 11),
-            bg=WHITE,
-            fg=TEXT,
-            relief="flat",
-            state="disabled"
-        )
+        if isinstance(response, dict):
+            for key in (
+                    "data",
+                    "items",
+                    "results",
+                    "payments",
+                    "services",
+                    "invoices"
+            ):
+                value = response.get(key)
 
-        self.room_text.pack(
-            padx=15,
-            pady=(0, 15)
-        )
+                if isinstance(value, list):
+                    return value
 
-        # Danh sách booking
-        booking_panel = tk.Frame(
-            content,
-            bg=WHITE,
-            highlightbackground="#E5E9EF",
-            highlightthickness=1
-        )
+        return []
 
-        booking_panel.pack(
-            side="left",
-            fill="both",
-            expand=True
-        )
+    @staticmethod
+    def get_status(item, keys):
+        for key in keys:
+            value = item.get(key)
+            if value is not None:
+                return str(value).upper()
+        return ""
 
-        tk.Label(
-            booking_panel,
-            text="ĐẶT PHÒNG GẦN ĐÂY",
-            font=("Arial", 12, "bold"),
-            fg=NAVY,
-            bg=WHITE
-        ).pack(
-            anchor="w",
-            padx=18,
-            pady=18
-        )
-
-        columns = (
-            "id",
-            "customer",
-            "room",
-            "checkin",
-            "checkout",
-            "status"
-        )
-
-        self.booking_table = ttk.Treeview(
-            booking_panel,
-            columns=columns,
-            show="headings",
-            height=10
-        )
-
-        headings = {
-            "id": "Mã",
-            "customer": "Khách hàng",
-            "room": "Phòng",
-            "checkin": "Ngày nhận",
-            "checkout": "Ngày trả",
-            "status": "Trạng thái"
-        }
-
-        widths = {
-            "id": 55,
-            "customer": 145,
-            "room": 65,
-            "checkin": 95,
-            "checkout": 95,
-            "status": 125
-        }
-
-        for column in columns:
-
-            self.booking_table.heading(
-                column,
-                text=headings[column]
-            )
-
-            self.booking_table.column(
-                column,
-                width=widths[column],
-                anchor="center"
-            )
-
-        self.booking_table.pack(
-            fill="both",
-            expand=True,
-            padx=12,
-            pady=(0, 15)
-        )
-
-        # Nút làm mới
-        refresh_button = tk.Button(
-            header,
-            text="LÀM MỚI DỮ LIỆU",
-            font=("Arial", 10, "bold"),
-            bg=NAVY,
-            fg=WHITE,
-            activebackground=GOLD,
-            activeforeground=WHITE,
-            relief="flat",
-            padx=15,
-            pady=9,
-            cursor="hand2",
-            command=self.load_data
-        )
-
-        refresh_button.pack(
-            side="right",
-            anchor="e"
-        )
-
-    # ==============================
-    # LẤY DỮ LIỆU TỪ MYSQL
-    # ==============================
-
-    def load_data(self):
-
-        connection = get_connection()
-
-        if connection is None:
-            messagebox.showerror(
-                "Lỗi kết nối",
-                "Không thể kết nối MySQL!"
-            )
-            return
-
-        cursor = connection.cursor(
-            dictionary=True
-        )
-
+    @staticmethod
+    def get_amount(item):
         try:
+            return float(item.get("so_tien", 0) or 0)
+        except (ValueError, TypeError):
+            return 0
 
-            # Tổng khách hàng
-            cursor.execute("""
-                SELECT COUNT(*) AS total
-                FROM khach
-            """)
+    @staticmethod
+    def format_money(value):
+        return f"{value:,.0f} VNĐ"
 
-            customers = cursor.fetchone()["total"]
+    def load_dashboard(self):
+        errors = []
 
-            # Tổng số phòng
-            cursor.execute("""
-                SELECT COUNT(*) AS total
-                FROM phong
-            """)
+        # 1. Lấy danh sách phòng
+        try:
+            rooms_response = api_client.get("/api/rooms/")
+            rooms = self.extract_list(rooms_response)
 
-            rooms = cursor.fetchone()["total"]
+            total_rooms = len(rooms)
 
-            # Tổng booking
-            cursor.execute("""
-                SELECT COUNT(*) AS total
-                FROM booking
-            """)
-
-            bookings = cursor.fetchone()["total"]
-
-            # Doanh thu
-            cursor.execute("""
-                SELECT COALESCE(SUM(h.tong_tien), 0) AS revenue
-                FROM hoadon h
-                JOIN pay p ON h.pay_id = p.id
-                WHERE p.status = 'THANH_CONG'
-            """)
-
-            revenue = cursor.fetchone()["revenue"]
-
-            # Hiển thị số liệu
-            self.stat_values["customers"].config(
-                text=f"{customers:,}"
+            available_rooms = sum(
+                1 for room in rooms
+                if self.get_status(
+                    room, ["trang_thai", "status"]
+                ) == "SAN_SANG"
             )
 
-            self.stat_values["rooms"].config(
-                text=f"{rooms:,}"
+            self.stat_labels["rooms"].config(
+                text=str(total_rooms)
             )
 
-            self.stat_values["bookings"].config(
-                text=f"{bookings:,}"
+            self.stat_labels["available"].config(
+                text=str(available_rooms)
             )
 
-            self.stat_values["revenue"].config(
-                text=f"{float(revenue):,.0f} đ"
+        except APIError as error:
+            errors.append("Phòng: " + str(error))
+
+        # 2. Lấy danh sách khách hàng
+        try:
+            customers_response = api_client.get(
+                "/api/customers/"
+            )
+            customers = self.extract_list(customers_response)
+
+            self.stat_labels["customers"].config(
+                text=str(len(customers))
             )
 
-            # Thống kê trạng thái phòng
-            cursor.execute("""
-                SELECT trang_thai, COUNT(*) AS total
-                FROM phong
-                GROUP BY trang_thai
-            """)
+        except APIError as error:
+            errors.append("Khách hàng: " + str(error))
 
-            room_statistics = cursor.fetchall()
+        # 3. Lấy danh sách booking
+        try:
+            bookings_response = api_client.get(
+                "/api/bookings/"
+            )
+            bookings = self.extract_list(bookings_response)
 
-            self.room_text.config(state="normal")
-            self.room_text.delete("1.0", tk.END)
+            self.stat_labels["bookings"].config(
+                text=str(len(bookings))
+            )
 
-            for item in room_statistics:
+        except APIError as error:
+            errors.append("Booking: " + str(error))
 
-                self.room_text.insert(
-                    tk.END,
-                    f"{item['trang_thai']}: "
-                    f"{item['total']} phòng\n\n"
+        # 4. Lấy danh sách thanh toán
+        try:
+            payments_response = api_client.get(
+                "/api/payments/"
+            )
+            payments = self.extract_list(payments_response)
+
+            total_payments = len(payments)
+
+            successful_payments = [
+                payment for payment in payments
+                if self.get_status(
+                    payment, ["status", "trang_thai"]
+                ) == "THANH_CONG"
+            ]
+
+            pending_payments = [
+                payment for payment in payments
+                if self.get_status(
+                    payment, ["status", "trang_thai"]
+                ) == "CHO_THANH_TOAN"
+            ]
+
+            revenue = sum(
+                self.get_amount(payment)
+                for payment in successful_payments
+            )
+
+            self.stat_labels["payments"].config(
+                text=str(total_payments)
+            )
+
+            self.stat_labels["revenue"].config(
+                text=self.format_money(revenue)
+            )
+
+            self.success_payment_label.config(
+                text=(
+                    "Thanh toán thành công: "
+                    + str(len(successful_payments))
                 )
-
-            self.room_text.config(state="disabled")
-
-            # Booking gần đây
-            cursor.execute("""
-                SELECT
-                    b.id,
-                    k.ho_ten,
-                    p.so_phong,
-                    b.ngay_nhan,
-                    b.ngay_tra,
-                    b.trang_thai
-                FROM booking b
-                JOIN khach k ON b.khach_id = k.id
-                JOIN phong p ON b.phong_id = p.id
-                ORDER BY b.id DESC
-                LIMIT 5
-            """)
-
-            recent_bookings = cursor.fetchall()
-
-            # Xóa dữ liệu cũ
-            for item in self.booking_table.get_children():
-                self.booking_table.delete(item)
-
-            # Hiển thị dữ liệu mới
-            for booking in recent_bookings:
-
-                self.booking_table.insert(
-                    "",
-                    tk.END,
-                    values=(
-                        booking["id"],
-                        booking["ho_ten"],
-                        booking["so_phong"],
-                        booking["ngay_nhan"],
-                        booking["ngay_tra"],
-                        booking["trang_thai"]
-                    )
-                )
-
-        except Exception as e:
-
-            messagebox.showerror(
-                "Lỗi Dashboard",
-                str(e)
             )
 
-        finally:
+            self.pending_payment_label.config(
+                text=(
+                    "Đang chờ thanh toán: "
+                    + str(len(pending_payments))
+                )
+            )
 
-            cursor.close()
-            connection.close()
+        except APIError as error:
+            errors.append("Thanh toán: " + str(error))
+
+        if errors:
+            self.status_label.config(
+                text="Một số dữ liệu chưa tải được."
+            )
+
+            messagebox.showwarning(
+                "Cảnh báo dữ liệu",
+                "Không thể tải đầy đủ dữ liệu Dashboard:\n\n"
+                + "\n".join(errors)
+            )
+        else:
+            self.status_label.config(
+                text="Dữ liệu đã được cập nhật thành công."
+            )

@@ -1,8 +1,7 @@
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from decimal import Decimal
-from datetime import date
+from datetime import datetime
 from typing import Optional
 
 from api.database import get_db
@@ -14,9 +13,9 @@ router = APIRouter(
 )
 
 
-# =========================
+# =====================================================
 # CONSTANTS
-# =========================
+# =====================================================
 
 PAYMENT_METHODS = [
     "TIEN_MAT",
@@ -32,28 +31,15 @@ PAYMENT_STATUSES = [
 ]
 
 
-# =========================
+# =====================================================
 # SCHEMAS
-# =========================
-
-class PaymentCreate(BaseModel):
-    booking_id: int = Field(..., gt=0)
-    ngay_thanh_toan: date
-    so_tien: Decimal = Field(..., gt=0)
-    method: str
-    status: str = "CHO_THANH_TOAN"
+# =====================================================
+from api.schemas import PaymentCreate, PaymentUpdate
 
 
-class PaymentUpdate(BaseModel):
-    ngay_thanh_toan: Optional[date] = None
-    so_tien: Optional[Decimal] = Field(None, gt=0)
-    method: Optional[str] = None
-    status: Optional[str] = None
-
-
-# =========================
+# =====================================================
 # HELPER FUNCTIONS
-# =========================
+# =====================================================
 
 def get_payment_by_id(cursor, payment_id: int):
     cursor.execute("""
@@ -70,7 +56,8 @@ def get_payment_by_id(cursor, payment_id: int):
             b.ngay_tra,
             b.trang_thai AS booking_trang_thai
         FROM pay p
-        LEFT JOIN booking b ON p.booking_id = b.id
+        LEFT JOIN booking b
+            ON p.booking_id = b.id
         WHERE p.id = %s
     """, (payment_id,))
 
@@ -78,10 +65,11 @@ def get_payment_by_id(cursor, payment_id: int):
 
 
 def check_booking_exists(cursor, booking_id: int):
-    cursor.execute(
-        "SELECT id FROM booking WHERE id = %s",
-        (booking_id,)
-    )
+    cursor.execute("""
+        SELECT id
+        FROM booking
+        WHERE id = %s
+    """, (booking_id,))
 
     if cursor.fetchone() is None:
         raise HTTPException(
@@ -94,8 +82,10 @@ def validate_payment_method(method: str):
     if method not in PAYMENT_METHODS:
         raise HTTPException(
             status_code=422,
-            detail=f"Phương thức thanh toán không hợp lệ. "
-                   f"Các giá trị được chấp nhận: {PAYMENT_METHODS}"
+            detail=(
+                "Phương thức thanh toán không hợp lệ. "
+                f"Các giá trị được chấp nhận: {PAYMENT_METHODS}"
+            )
         )
 
 
@@ -103,14 +93,16 @@ def validate_payment_status(status: str):
     if status not in PAYMENT_STATUSES:
         raise HTTPException(
             status_code=422,
-            detail=f"Trạng thái thanh toán không hợp lệ. "
-                   f"Các giá trị được chấp nhận: {PAYMENT_STATUSES}"
+            detail=(
+                "Trạng thái thanh toán không hợp lệ. "
+                f"Các giá trị được chấp nhận: {PAYMENT_STATUSES}"
+            )
         )
 
 
-# =========================
+# =====================================================
 # GET ALL PAYMENTS
-# =========================
+# =====================================================
 
 @router.get("/")
 def get_payments(db=Depends(get_db)):
@@ -131,7 +123,8 @@ def get_payments(db=Depends(get_db)):
                 b.ngay_tra,
                 b.trang_thai AS booking_trang_thai
             FROM pay p
-            LEFT JOIN booking b ON p.booking_id = b.id
+            LEFT JOIN booking b
+                ON p.booking_id = b.id
             ORDER BY p.id DESC
         """)
 
@@ -147,16 +140,19 @@ def get_payments(db=Depends(get_db)):
         cursor.close()
 
 
-# =========================
+# =====================================================
 # GET PAYMENT BY ID
-# =========================
+# =====================================================
 
 @router.get("/{payment_id}")
 def get_payment(payment_id: int, db=Depends(get_db)):
     cursor = db.cursor(dictionary=True)
 
     try:
-        payment = get_payment_by_id(cursor, payment_id)
+        payment = get_payment_by_id(
+            cursor,
+            payment_id
+        )
 
         if payment is None:
             raise HTTPException(
@@ -173,29 +169,37 @@ def get_payment(payment_id: int, db=Depends(get_db)):
         cursor.close()
 
 
-# =========================
+# =====================================================
 # CREATE PAYMENT
-# =========================
+# =====================================================
 
 @router.post("/", status_code=201)
-def create_payment(data: PaymentCreate, db=Depends(get_db)):
+def create_payment(
+    data: PaymentCreate,
+    db=Depends(get_db)
+):
     cursor = db.cursor(dictionary=True)
 
     try:
-        check_booking_exists(cursor, data.booking_id)
+        # Kiểm tra booking
+        check_booking_exists(
+            cursor,
+            data.booking_id
+        )
+
+        # Kiểm tra phương thức và trạng thái
         validate_payment_method(data.method)
         validate_payment_status(data.status)
 
-        # Không tạo thanh toán thành công ngay từ đầu.
-        # Cần cập nhật trạng thái sau khi hóa đơn đã tồn tại.
+        # Không tạo thanh toán thành công trực tiếp
         if data.status == "THANH_CONG":
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Không tạo thanh toán với trạng thái THANH_CONG. "
-                    "Hãy tạo ở trạng thái CHO_THANH_TOAN, "
-                    "đảm bảo hóa đơn đã được lập và đúng số tiền, "
-                    "sau đó dùng PUT để xác nhận thanh toán."
+                    "Không tạo thanh toán với trạng thái "
+                    "THANH_CONG. Hãy tạo thanh toán ở trạng thái "
+                    "CHO_THANH_TOAN, đảm bảo hóa đơn đã được lập "
+                    "và đúng số tiền, sau đó dùng PUT để xác nhận."
                 )
             )
 
@@ -217,9 +221,13 @@ def create_payment(data: PaymentCreate, db=Depends(get_db)):
         ))
 
         new_id = cursor.lastrowid
+
         db.commit()
 
-        payment = get_payment_by_id(cursor, new_id)
+        payment = get_payment_by_id(
+            cursor,
+            new_id
+        )
 
         return {
             "message": "Tạo thanh toán thành công",
@@ -233,6 +241,7 @@ def create_payment(data: PaymentCreate, db=Depends(get_db)):
 
     except Exception as e:
         db.rollback()
+
         raise HTTPException(
             status_code=400,
             detail=f"Lỗi khi tạo thanh toán: {str(e)}"
@@ -242,9 +251,9 @@ def create_payment(data: PaymentCreate, db=Depends(get_db)):
         cursor.close()
 
 
-# =========================
+# =====================================================
 # UPDATE PAYMENT
-# =========================
+# =====================================================
 
 @router.put("/{payment_id}")
 def update_payment(
@@ -255,7 +264,10 @@ def update_payment(
     cursor = db.cursor(dictionary=True)
 
     try:
-        existing = get_payment_by_id(cursor, payment_id)
+        existing = get_payment_by_id(
+            cursor,
+            payment_id
+        )
 
         if existing is None:
             raise HTTPException(
@@ -263,19 +275,35 @@ def update_payment(
                 detail="Không tìm thấy thanh toán."
             )
 
-        update_data = data.model_dump(exclude_unset=True)
+        update_data = data.model_dump(
+            exclude_unset=True
+        )
 
         if not update_data:
             raise HTTPException(
                 status_code=400,
-                detail="Không có thông tin nào được gửi để cập nhật."
+                detail=(
+                    "Không có thông tin nào được gửi "
+                    "để cập nhật."
+                )
             )
 
-        if "method" in update_data:
-            validate_payment_method(update_data["method"])
+        # Kiểm tra các trường được cập nhật
+        if (
+            "method" in update_data
+            and update_data["method"] is not None
+        ):
+            validate_payment_method(
+                update_data["method"]
+            )
 
-        if "status" in update_data:
-            validate_payment_status(update_data["status"])
+        if (
+            "status" in update_data
+            and update_data["status"] is not None
+        ):
+            validate_payment_status(
+                update_data["status"]
+            )
 
         allowed_fields = [
             "ngay_thanh_toan",
@@ -285,15 +313,27 @@ def update_payment(
         ]
 
         fields = [
-            field for field in update_data
+            field
+            for field in update_data
             if field in allowed_fields
         ]
 
+        if not fields:
+            raise HTTPException(
+                status_code=400,
+                detail="Không có trường hợp lệ để cập nhật."
+            )
+
         set_clause = ", ".join(
-            f"{field} = %s" for field in fields
+            f"{field} = %s"
+            for field in fields
         )
 
-        values = [update_data[field] for field in fields]
+        values = [
+            update_data[field]
+            for field in fields
+        ]
+
         values.append(payment_id)
 
         cursor.execute(
@@ -307,7 +347,10 @@ def update_payment(
 
         db.commit()
 
-        updated_payment = get_payment_by_id(cursor, payment_id)
+        updated_payment = get_payment_by_id(
+            cursor,
+            payment_id
+        )
 
         return {
             "message": "Cập nhật thanh toán thành công",
@@ -335,16 +378,22 @@ def update_payment(
         cursor.close()
 
 
-# =========================
+# =====================================================
 # DELETE PAYMENT
-# =========================
+# =====================================================
 
 @router.delete("/{payment_id}")
-def delete_payment(payment_id: int, db=Depends(get_db)):
+def delete_payment(
+    payment_id: int,
+    db=Depends(get_db)
+):
     cursor = db.cursor(dictionary=True)
 
     try:
-        existing = get_payment_by_id(cursor, payment_id)
+        existing = get_payment_by_id(
+            cursor,
+            payment_id
+        )
 
         if existing is None:
             raise HTTPException(
@@ -352,10 +401,10 @@ def delete_payment(payment_id: int, db=Depends(get_db)):
                 detail="Không tìm thấy thanh toán."
             )
 
-        cursor.execute(
-            "DELETE FROM pay WHERE id = %s",
-            (payment_id,)
-        )
+        cursor.execute("""
+            DELETE FROM pay
+            WHERE id = %s
+        """, (payment_id,))
 
         db.commit()
 

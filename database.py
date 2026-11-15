@@ -1,14 +1,14 @@
-
 import mysql.connector
 from mysql.connector import Error
 
-# Cấu hình kết nối MySQL
+
 DB_CONFIG = {
     "host": "localhost",
     "user": "root",
     "password": "dinomtp16",
-    "database": "hotel_management",
-    "port": 3306
+    "database": "hotel_management_v2",
+    "port": 3306,
+    "charset": "utf8mb4"
 }
 
 
@@ -19,30 +19,17 @@ def get_connection():
         if connection.is_connected():
             return connection
 
-    except Error as e:
-        print("Lỗi kết nối MySQL:", e)
+    except Error as error:
+        print("Lỗi kết nối MySQL:", error)
+        raise
 
-    return None
 
-
-def test_connection():
+def get_db():
     connection = get_connection()
 
-    if connection:
-        print("KẾT NỐI MYSQL THÀNH CÔNG!")
+    try:
+        yield connection
 
-        cursor = connection.cursor()
-        cursor.execute("SELECT DATABASE()")
-        database_name = cursor.fetchone()
-
-        print("Database đang sử dụng:", database_name[0])
-
-        cursor.close()
-        connection.close()
-
-    else:
-        print("KẾT NỐI MYSQL THẤT BẠI!")
-
-
-if __name__ == "__main__":
-    test_connection()
+    finally:
+        if connection and connection.is_connected():
+            connection.close()
