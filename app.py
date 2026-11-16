@@ -498,13 +498,6 @@ class HotelManagementApp:
                 self.create_layout()
                 self.show_page("dashboard")
                 self.update_user_header()
-
-                self.login_frame.destroy()
-
-                self.create_layout()
-                self.show_page("dashboard")
-                self.update_user_header()
-
             else:
 
                 messagebox.showerror(

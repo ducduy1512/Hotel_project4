@@ -58,11 +58,21 @@ class CustomerUpdate(BaseModel):
 # BOOKING
 # =========================================================
 
+
+class BookingServiceSelection(BaseModel):
+    dichvu_id: int = Field(gt=0)
+    so_luong: int = Field(default=1, gt=0)
+
+
 class BookingCreate(BaseModel):
     phong_id: int = Field(gt=0)
     khach_id: int = Field(gt=0)
     ngay_nhan: date
     ngay_tra: date
+
+    # Khách có thể chọn nhiều dịch vụ hoặc không chọn dịch vụ nào.
+    dich_vu: list[BookingServiceSelection] = Field(default_factory=list)
+
 
 
 class BookingUpdate(BaseModel):
@@ -151,3 +161,37 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=1, max_length=128)
+
+
+# =========================================================
+# SERVICE CATALOG
+# =========================================================
+
+class ServiceCatalogCreate(BaseModel):
+    ten: str = Field(min_length=1, max_length=100)
+    don_gia: Decimal = Field(ge=0)
+    mo_ta: Optional[str] = Field(default=None, max_length=255)
+
+
+class ServiceCatalogUpdate(BaseModel):
+    ten: str = Field(min_length=1, max_length=100)
+    don_gia: Decimal = Field(ge=0)
+    mo_ta: Optional[str] = Field(default=None, max_length=255)
+    trang_thai: str = "DANG_HOAT_DONG"
+
+
+# =========================================================
+# ROOM TYPE DEFAULT SERVICES
+# =========================================================
+
+class RoomTypeDefaultServiceItem(BaseModel):
+    dichvu_id: int = Field(gt=0)
+    don_gia: Decimal = Field(ge=0)
+    so_luong_mac_dinh: int = Field(default=1, gt=0)
+
+
+class RoomTypeDefaultServicesUpdate(BaseModel):
+    dich_vu: list[RoomTypeDefaultServiceItem] = Field(
+        default_factory=list
+    )
+
