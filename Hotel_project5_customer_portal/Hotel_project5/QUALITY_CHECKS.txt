@@ -1,0 +1,27 @@
+HOTEL PROJECT 5 - HANDOVER CHECKS
+================================
+
+Passed in this build:
+- Python syntax: 30 .py files parsed successfully.
+- FastAPI module/routes: imported and registered 58 routes using a stub MySQL connector.
+- Authorization wiring: all 48 non-auth /api management routes carry the ADMIN dependency.
+- Auth logic: the seeded Admin@123 PBKDF2 hash matches the password verifier; JWT create/decode round-trip passed.
+- GUI separation: app.py and pages/*.py contain no MySQL connector, cursor or SQL execute calls; GUI uses HTTP API Client.
+- SQL inventory (static count): 9 CREATE TABLE statements (8 ERD entities + users), 15 procedures, 15 triggers, 10 views.
+- Sample Pay #11 refunded transaction now has its own HoaDon row; failed Pay #10 remains without an invoice.
+
+Not claimed as tested here:
+- No live MySQL Server was available in this environment, and mysql-connector-python could not be installed here because package network access was unavailable.
+- Therefore the SQL files and real DB transactions have not been executed against MySQL in this environment.
+- GUI has not been launched on a Windows desktop in this environment.
+
+Run the SQL scripts in the order documented in README.md, then run Hotel_TestCase.sql.
+The /health/db API endpoint checks the 8 ERD tables + users, 15 triggers, 15 stored procedures and 10 views.
+CUSTOMER PORTAL ADDITION
+- CUSTOMER login opens pages/customer_portal.py instead of the ADMIN workspace.
+- CUSTOMER API router is mounted with require_customer authorization.
+- Booking creation uses khach_id from the authenticated token, not client input.
+- Customer booking, payment, and invoice queries are filtered by authenticated khach_id.
+- Customer payment requests create a pending Pay + HoaDon via sp_tinh_tien_va_tao_hoa_don; no payment gateway is integrated.
+- Python syntax compilation must be rerun after install; MySQL integration tests require a live MySQL 8 server.
+
