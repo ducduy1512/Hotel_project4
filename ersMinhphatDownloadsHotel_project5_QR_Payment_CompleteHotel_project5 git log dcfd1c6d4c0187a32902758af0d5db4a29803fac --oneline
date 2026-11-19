@@ -1,0 +1,11 @@
+[33mdcfd1c6[m feat(api): add bookings and services endpoints with session support
+[33m060806d[m feat: update auth router, api client, and main app • Update api_client, app, and auth router • Implement authentication and update API client
+[33m132f166[m feat(api): initialize backend API routers and customer page
+[33m2f31a38[m feat: initialize hotel management system core modules and config
+[33mc41986a[m feat: complete hotel management system GUI
+[33m016f8d6[m feat: add Details.py and update single-window UI
+[33m903c222[m Add complete Hotel Management System modules
+[33mf491a41[m Add complete Hotel Management System modules
+[33m10e379a[m Add Customer.py module for Hotel Management System
+[33m066fe6e[m git commit -m "feat: create main Hotel Management System interface"
+[33mb27dc69[m Initial commit

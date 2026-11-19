@@ -14,6 +14,7 @@ class InvoicesPage:
     def __init__(self, parent):
         self.parent = parent
         self.selected_invoice = None
+        self.booking_options = {}
 
         self.frame = ttk.Frame(parent)
         self.frame.pack(
@@ -24,6 +25,7 @@ class InvoicesPage:
         )
 
         self.create_widgets()
+        self.load_booking_options()
         self.load_invoices()
 
     # =================================================
@@ -38,6 +40,54 @@ class InvoicesPage:
             font=("Arial", 18, "bold")
         )
         title.pack(pady=(0, 15))
+
+        # LẬP HÓA ĐƠN TỪ BOOKING
+        create_frame = ttk.LabelFrame(
+            self.frame,
+            text="Lập hóa đơn từ Booking",
+            padding=10
+        )
+        create_frame.pack(fill="x", pady=(0, 8))
+
+        ttk.Label(create_frame, text="Booking:").pack(side="left", padx=(4, 6))
+        self.create_booking_var = tk.StringVar()
+        self.create_booking_combo = ttk.Combobox(
+            create_frame,
+            textvariable=self.create_booking_var,
+            state="readonly",
+            width=48
+        )
+        self.create_booking_combo.pack(side="left", padx=5, fill="x", expand=True)
+
+        ttk.Button(
+            create_frame,
+            text="Tải lại Booking",
+            command=self.load_booking_options
+        ).pack(side="left", padx=5)
+
+        ttk.Label(create_frame, text="Phương thức:").pack(side="left", padx=(10, 6))
+        self.create_method_var = tk.StringVar(value="CHUYEN_KHOAN")
+        self.create_method_combo = ttk.Combobox(
+            create_frame,
+            textvariable=self.create_method_var,
+            state="readonly",
+            width=18,
+            values=("TIEN_MAT", "CHUYEN_KHOAN", "THE")
+        )
+        self.create_method_combo.pack(side="left", padx=5)
+
+        ttk.Button(
+            create_frame,
+            text="Lập hóa đơn & tính tiền",
+            command=self.create_invoice
+        ).pack(side="right", padx=5)
+
+        self.booking_status_label = ttk.Label(
+            self.frame,
+            text="Đang tải danh sách Booking...",
+            foreground="#64748B"
+        )
+        self.booking_status_label.pack(anchor="w", padx=8, pady=(0, 8))
 
         # TÌM KIẾM
 
@@ -115,6 +165,7 @@ class InvoicesPage:
             "tien_phong",
             "tien_dich_vu",
             "tong_tien",
+            "mua_cao_diem",
             "ngay_lap"
         )
 
@@ -134,6 +185,7 @@ class InvoicesPage:
             "tien_phong": "Tiền phòng",
             "tien_dich_vu": "Tiền dịch vụ",
             "tong_tien": "Tổng tiền",
+            "mua_cao_diem": "Mùa cao điểm",
             "ngay_lap": "Ngày lập"
         }
 
@@ -146,6 +198,7 @@ class InvoicesPage:
             "tien_phong": 120,
             "tien_dich_vu": 120,
             "tong_tien": 130,
+            "mua_cao_diem": 110,
             "ngay_lap": 160
         }
 
@@ -292,6 +345,146 @@ class InvoicesPage:
         return []
 
     # =================================================
+    # LẬP HÓA ĐƠN TỪ BOOKING
+    # =================================================
+
+    def load_booking_options(self):
+        """Tải các Booking chưa có hóa đơn từ endpoint chuyên biệt."""
+        previous_display = self.create_booking_var.get().strip()
+        previous_booking_id = self.booking_options.get(previous_display)
+
+        try:
+            response = api_client.get("/api/invoices/eligible-bookings")
+
+            if isinstance(response, list):
+                bookings = response
+            elif isinstance(response, dict):
+                bookings = response.get("bookings")
+                if bookings is None:
+                    bookings = response.get("data", [])
+            else:
+                bookings = None
+
+            if not isinstance(bookings, list):
+                raise APIError(
+                    "API danh sách Booking đủ điều kiện lập hóa đơn "
+                    "không trả về danh sách hợp lệ."
+                )
+
+            self.booking_options = {}
+            display_values = []
+            selected_display = ""
+
+            for booking in bookings:
+                if not isinstance(booking, dict):
+                    continue
+
+                booking_id = booking.get("id", booking.get("booking_id"))
+                if booking_id is None:
+                    continue
+
+                status = str(booking.get("trang_thai") or "").strip()
+                if status == "DA_HUY":
+                    continue
+
+                room = booking.get("so_phong")
+                if room in (None, ""):
+                    room = booking.get("phong_id", "?")
+
+                customer = booking.get("ho_ten") or f"Khách #{booking.get('khach_id', '?')}"
+                checkin = str(booking.get("ngay_nhan") or "")[:10]
+                checkout = str(booking.get("ngay_tra") or "")[:10]
+
+                display = (
+                    f"Booking #{booking_id} | Phòng {room} | {customer} | "
+                    f"{checkin} → {checkout} | {status or 'CHƯA RÕ TRẠNG THÁI'}"
+                )
+                numeric_id = int(booking_id)
+                self.booking_options[display] = numeric_id
+                display_values.append(display)
+
+                if previous_booking_id == numeric_id:
+                    selected_display = display
+
+            self.create_booking_combo["values"] = display_values
+
+            if selected_display:
+                self.create_booking_var.set(selected_display)
+            elif display_values:
+                self.create_booking_var.set(display_values[0])
+            else:
+                self.create_booking_var.set("")
+
+            if hasattr(self, "booking_status_label"):
+                if display_values:
+                    self.booking_status_label.config(
+                        text=f"Có {len(display_values)} Booking chưa có hóa đơn.",
+                        foreground="#247A4B"
+                    )
+                else:
+                    self.booking_status_label.config(
+                        text="Không có Booking đủ điều kiện. Hãy kiểm tra Booking hoặc nhấn Tải lại.",
+                        foreground="#A16207"
+                    )
+
+        except APIError as error:
+            if hasattr(self, "booking_status_label"):
+                self.booking_status_label.config(
+                    text=f"Không tải được Booking: {error}",
+                    foreground="#C0392B"
+                )
+            messagebox.showerror("Lỗi tải Booking", str(error))
+        except (TypeError, ValueError, KeyError) as error:
+            message = f"Dữ liệu Booking trả về không hợp lệ: {error}"
+            if hasattr(self, "booking_status_label"):
+                self.booking_status_label.config(
+                    text=message,
+                    foreground="#C0392B"
+                )
+            messagebox.showerror("Lỗi dữ liệu Booking", message)
+
+    def create_invoice(self):
+        """Ask the API/Stored Procedure to calculate and create Pay + HoaDon."""
+        display = self.create_booking_var.get().strip()
+        booking_id = self.booking_options.get(display)
+        if booking_id is None:
+            messagebox.showwarning("Chưa chọn Booking", "Vui lòng chọn Booking cần lập hóa đơn.")
+            return
+
+        method = self.create_method_var.get().strip()
+        if method not in {"TIEN_MAT", "CHUYEN_KHOAN", "THE"}:
+            messagebox.showwarning("Phương thức không hợp lệ", "Vui lòng chọn phương thức thanh toán hợp lệ.")
+            return
+
+        if not messagebox.askyesno(
+            "Xác nhận lập hóa đơn",
+            f"Tính tiền và lập hóa đơn cho Booking #{booking_id} bằng {method}?\n"
+            "Database sẽ tự tính tiền phòng, dịch vụ và tạo giao dịch Pay chờ thanh toán."
+        ):
+            return
+
+        try:
+            result = api_client.post(
+                "/api/invoices/",
+                {"booking_id": booking_id, "method": method}
+            )
+            invoice = result.get("invoice", {}) if isinstance(result, dict) else {}
+            total = invoice.get("tong_tien", 0)
+            invoice_id = invoice.get("id", "?")
+            messagebox.showinfo(
+                "Lập hóa đơn thành công",
+                f"{result.get('message', 'Đã lập hóa đơn.')}\n"
+                f"Mã hóa đơn: {invoice_id}\n"
+                f"Mã Booking: {booking_id}\n"
+                f"Tổng tiền: {self.format_money(total)}\n"
+                f"Trạng thái thanh toán: {invoice.get('payment_status', 'CHO_THANH_TOAN')}"
+            )
+            self.load_invoices()
+            self.load_booking_options()
+        except APIError as error:
+            messagebox.showerror("Không thể lập hóa đơn", str(error))
+
+    # =================================================
     # TẢI DANH SÁCH HÓA ĐƠN
     # =================================================
 
@@ -342,6 +535,7 @@ class InvoicesPage:
                     self.format_money(
                         invoice.get("tong_tien", 0)
                     ),
+                    "CÓ" if invoice.get("ap_dung_mua_cao_diem") else "KHÔNG",
                     self.format_date(
                         invoice.get("ngay_lap", "")
                     )

@@ -1,0 +1,30 @@
+HOTEL PROJECT 5 - HANDOVER CHECKS
+================================
+
+Passed in this build:
+- Python syntax: all 34 .py files in this build parse successfully.
+- FastAPI module/routes: payment webhook, QR customer endpoints and admin webhook-audit route are registered; import smoke test uses a stub MySQL connector.
+- Authorization wiring: all 48 non-auth /api management routes carry the ADMIN dependency.
+- Auth logic: the seeded Admin@123 PBKDF2 hash matches the password verifier; JWT create/decode round-trip passed.
+- GUI separation: app.py and pages/*.py contain no MySQL connector, cursor or SQL execute calls; GUI uses HTTP API Client.
+- SQL inventory (static count): 11 CREATE TABLE statements (8 ERD entities + users + 2 QR support tables), 15 procedures, 15 triggers, 10 views.
+- Sample Pay #11 refunded transaction now has its own HoaDon row; failed Pay #10 remains without an invoice.
+
+Not claimed as tested here:
+- No live MySQL Server was available in this environment, and mysql-connector-python could not be installed here because package network access was unavailable.
+- Therefore the SQL files and real DB transactions have not been executed against MySQL in this environment.
+- GUI has not been launched on a Windows desktop in this environment.
+
+Run the SQL scripts in the order documented in README.md, then run Hotel_TestCase.sql.
+The /health/db API endpoint checks the 8 ERD tables + users + payment_qr + sepay_webhook_events, 15 triggers, 15 stored procedures and 10 views.
+CUSTOMER PORTAL ADDITION
+- CUSTOMER login opens pages/customer_portal.py instead of the ADMIN workspace.
+- CUSTOMER API router is mounted with require_customer authorization.
+- Booking creation uses khach_id from the authenticated token, not client input.
+- Customer booking, payment, and invoice queries are filtered by authenticated khach_id.
+- Customer CHUYEN_KHOAN requests create a pending Pay + HoaDon via sp_tinh_tien_va_tao_hoa_don, display a VietQR transfer QR, and poll payment status. Authenticated SePay webhooks perform exact-amount reconciliation.
+- QR settings and SePay webhook credentials must be supplied in the local .env; the webhook needs a public HTTPS URL.
+- Python syntax compilation must be rerun after install; MySQL integration tests require a live MySQL 8 server.
+
+
+QR payment checks: the customer QR is owner-scoped; a payment becomes THANH_CONG only after an authenticated SePay incoming-transfer webhook matches the receiving account, payment code, Pay amount and invoice total. Duplicate provider transaction IDs are ignored.

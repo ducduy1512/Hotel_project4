@@ -140,6 +140,12 @@ class PaymentsPage:
             command=self.load_payments
         ).pack(side="left", padx=5)
 
+        ttk.Button(
+            search_frame,
+            text="Nhật ký giao dịch QR (SePay)",
+            command=self.show_qr_webhook_events
+        ).pack(side="left", padx=10)
+
         table_frame = ttk.Frame(self.frame)
         table_frame.pack(fill="both", expand=True)
 
@@ -148,6 +154,8 @@ class PaymentsPage:
             "booking_id",
             "ngay_thanh_toan",
             "so_tien",
+            "tien_phong_ap_dung",
+            "mua_cao_diem",
             "method",
             "status"
         )
@@ -163,7 +171,9 @@ class PaymentsPage:
             "id": "Payment ID",
             "booking_id": "Booking ID",
             "ngay_thanh_toan": "Ngày thanh toán",
-            "so_tien": "Số tiền",
+            "so_tien": "Tổng Pay",
+            "tien_phong_ap_dung": "Tiền phòng đã chốt",
+            "mua_cao_diem": "Mùa cao điểm",
             "method": "Phương thức",
             "status": "Trạng thái"
         }
@@ -172,8 +182,10 @@ class PaymentsPage:
             "id": 90,
             "booking_id": 100,
             "ngay_thanh_toan": 170,
-            "so_tien": 150,
-            "method": 150,
+            "so_tien": 130,
+            "tien_phong_ap_dung": 150,
+            "mua_cao_diem": 115,
+            "method": 130,
             "status": 180
         }
 
@@ -264,6 +276,8 @@ class PaymentsPage:
                     ),
                     payment.get("ngay_thanh_toan", ""),
                     payment.get("so_tien", 0),
+                    payment.get("tien_phong_ap_dung", 0),
+                    "CÓ" if payment.get("ap_dung_mua_cao_diem") else "KHÔNG",
                     payment.get("method", ""),
                     payment.get("status", "")
                 )
@@ -390,6 +404,43 @@ class PaymentsPage:
 
         except APIError as error:
             messagebox.showerror("Không thể xóa", str(error))
+
+    def show_qr_webhook_events(self):
+        """Show all provider callbacks, including unmatched or wrong-amount transfers."""
+        try:
+            response = api_client.get("/api/payments/webhook-events", params={"limit": 200})
+            events = response.get("events", []) if isinstance(response, dict) else []
+        except APIError as exc:
+            messagebox.showerror("Lỗi nhật ký QR", str(exc), parent=self.frame)
+            return
+
+        window = tk.Toplevel(self.frame)
+        window.title("Nhật ký thanh toán QR - SePay")
+        window.geometry("1120x460")
+        columns = ("id", "transaction", "code", "amount", "pay", "result", "reference", "time")
+        tree = ttk.Treeview(window, columns=columns, show="headings", height=16)
+        headings = {
+            "id": "Log ID", "transaction": "SePay Transaction ID", "code": "Mã chuyển khoản",
+            "amount": "Số tiền nhận", "pay": "Pay ID", "result": "Kết quả đối soát",
+            "reference": "Mã tham chiếu ngân hàng", "time": "Thời điểm nhận",
+        }
+        widths = {"id": 65, "transaction": 145, "code": 130, "amount": 115,
+                  "pay": 65, "result": 190, "reference": 180, "time": 150}
+        for col in columns:
+            tree.heading(col, text=headings[col])
+            tree.column(col, width=widths[col], anchor="center")
+        yscroll = ttk.Scrollbar(window, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=yscroll.set)
+        tree.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
+        yscroll.pack(side="right", fill="y", padx=(0, 8), pady=8)
+        for item in events:
+            tree.insert("", "end", values=(
+                item.get("id"), item.get("transaction_id"), item.get("payment_code"),
+                f"{float(item.get('transfer_amount') or 0):,.0f} VNĐ", item.get("pay_id") or "",
+                item.get("processing_result"), item.get("reference_code") or "", item.get("received_at"),
+            ))
+        if not events:
+            ttk.Label(window, text="Chưa có webhook giao dịch nào được ghi nhận.").pack(pady=10)
 
     def on_select(self, event=None):
         selected = self.tree.selection()

@@ -16,6 +16,7 @@ from pages.services import ServicesPage
 from pages.payments import PaymentsPage
 from pages.invoices import InvoicesPage
 from pages.reports import ReportsPage
+from pages.customer_portal import CustomerPortalPage
 
 
 class HotelManagementApp:
@@ -96,13 +97,26 @@ class HotelManagementApp:
         )
 
         saved_user = self.load_session()
+        saved_token = self.load_session_token()
 
-        if saved_user:
-            self.current_user = saved_user
-            self.create_layout()
-            self.show_page("dashboard")
-            self.update_user_header()
+        if saved_user and saved_token and saved_user.get("role") in ("ADMIN", "CUSTOMER"):
+            api_client.set_token(saved_token)
+            try:
+                verification = api_client.get("/api/auth/me")
+                self.current_user = verification.get("user") or saved_user
+                if self.current_user.get("role") == "ADMIN":
+                    self.create_layout()
+                    self.show_page("dashboard")
+                    self.update_user_header()
+                elif self.current_user.get("role") == "CUSTOMER":
+                    self.create_customer_layout()
+                else:
+                    raise APIError("Vai trò tài khoản không hợp lệ.")
+            except APIError:
+                self.clear_session()
+                self.show_login()
         else:
+            self.clear_session()
             self.show_login()
 
     # ==================================================
@@ -316,10 +330,11 @@ class HotelManagementApp:
             "session.json"
         )
 
-    def save_session(self, user):
+    def save_session(self, user, access_token):
         data = {
             "logged_in": True,
-            "user": user
+            "user": user,
+            "access_token": access_token
         }
 
         with open(
@@ -346,7 +361,16 @@ class HotelManagementApp:
 
         return None
 
+    def load_session_token(self):
+        try:
+            with open(self.get_session_path(), "r", encoding="utf-8") as file:
+                data = json.load(file)
+            return data.get("access_token") if data.get("logged_in") else None
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+
     def clear_session(self):
+        api_client.clear_token()
         try:
             os.remove(self.get_session_path())
         except FileNotFoundError:
@@ -485,19 +509,27 @@ class HotelManagementApp:
             if result.get("success"):
 
                 self.current_user = result.get("user")
+                access_token = result.get("access_token")
 
-                if not self.current_user:
+                if not self.current_user or not access_token:
                     raise APIError(
-                        "API không trả về thông tin người dùng."
+                        "API không trả về thông tin người dùng hoặc access token."
                     )
 
-                self.save_session(self.current_user)
-
+                api_client.set_token(access_token)
+                self.save_session(self.current_user, access_token)
                 self.login_frame.destroy()
 
-                self.create_layout()
-                self.show_page("dashboard")
-                self.update_user_header()
+                if self.current_user.get("role") == "ADMIN":
+                    self.create_layout()
+                    self.show_page("dashboard")
+                    self.update_user_header()
+                elif self.current_user.get("role") == "CUSTOMER":
+                    self.create_customer_layout()
+                else:
+                    self.clear_session()
+                    self.current_user = None
+                    raise APIError("Vai trò tài khoản không hợp lệ.")
             else:
 
                 messagebox.showerror(
@@ -562,7 +594,7 @@ class HotelManagementApp:
 
         tk.Label(
             box,
-            text="Đăng ký tài khoản nhân viên",
+            text="Đăng ký tài khoản khách hàng",
             font=("Arial", 11),
             bg="white",
             fg="#6B7280"
@@ -583,6 +615,28 @@ class HotelManagementApp:
             bd=1
         )
         full_name_entry.pack(fill="x", pady=(5, 13), ipady=7)
+
+        # CCCD
+        tk.Label(
+            box,
+            text="CCCD",
+            bg="white",
+            font=("Arial", 10, "bold")
+        ).pack(anchor="w")
+
+        cccd_entry = tk.Entry(box, font=("Arial", 12), relief="solid", bd=1)
+        cccd_entry.pack(fill="x", pady=(5, 9), ipady=6)
+
+        # Số điện thoại
+        tk.Label(
+            box,
+            text="Số điện thoại",
+            bg="white",
+            font=("Arial", 10, "bold")
+        ).pack(anchor="w")
+
+        phone_entry = tk.Entry(box, font=("Arial", 12), relief="solid", bd=1)
+        phone_entry.pack(fill="x", pady=(5, 9), ipady=6)
 
         # Tên đăng nhập
         tk.Label(
@@ -639,10 +693,12 @@ class HotelManagementApp:
 
             full_name = full_name_entry.get().strip()
             username = username_entry.get().strip()
+            cccd = cccd_entry.get().strip()
+            sdt = phone_entry.get().strip()
             password = password_entry.get()
             confirm_password = confirm_entry.get()
 
-            if not all([full_name, username, password, confirm_password]):
+            if not all([full_name, username, cccd, sdt, password, confirm_password]):
                 self.show_result_popup(
                     self.root,
                     "Thiếu thông tin",
@@ -701,32 +757,24 @@ class HotelManagementApp:
                     {
                         "full_name": full_name,
                         "username": username,
+                        "cccd": cccd,
+                        "sdt": sdt,
                         "password": password
                     }
                 )
 
                 if result.get("success"):
 
-                    # Chuyển về màn hình đăng nhập
+                    # Public registration always creates a CUSTOMER account.
                     self.show_login()
-
                     self.username_entry.insert(0, username)
                     self.password_entry.focus_set()
-
-                    # Chuyển về màn hình đăng nhập
-                    # Khôi phục phiên đăng nhập
-                    saved_user = self.load_session()
-
-                    if saved_user:
-                        self.current_user = saved_user
-                        self.create_layout()
-                        self.show_page("dashboard")
-                        self.update_user_header()
-                    else:
-                        self.show_login()
-
-                    self.username_entry.insert(0, username)
-                    self.password_entry.focus_set()
+                    self.show_result_popup(
+                        self.root,
+                        "Đăng ký thành công",
+                        "Tài khoản CUSTOMER đã được tạo. Bạn có thể đăng nhập để sử dụng cổng khách hàng.",
+                        True
+                    )
 
                 else:
 
@@ -823,9 +871,21 @@ class HotelManagementApp:
             return
 
         self.clear_session()
+        self.current_user = None
 
         if hasattr(self, "main_container"):
-            self.main_container.destroy()
+            try:
+                if self.main_container.winfo_exists():
+                    self.main_container.destroy()
+            except tk.TclError:
+                pass
+
+        if hasattr(self, "customer_container"):
+            try:
+                if self.customer_container.winfo_exists():
+                    self.customer_container.destroy()
+            except tk.TclError:
+                pass
 
         self.current_page = None
         self.current_page_name = None
@@ -834,7 +894,28 @@ class HotelManagementApp:
         self.show_login()
 
     # ==================================================
-    # CREATE MAIN LAYOUT
+    # CUSTOMER WORKSPACE
+    # ==================================================
+
+    def create_customer_layout(self):
+        """Mở workspace giới hạn quyền dành riêng cho khách hàng."""
+        try:
+            profile = api_client.get("/api/customer/me")
+            self.current_user = profile.get("user") or self.current_user
+        except APIError as error:
+            messagebox.showerror("Không tải được hồ sơ", str(error), parent=self.root)
+            return
+
+        self.customer_container = tk.Frame(self.root, bg="#F3F4F6")
+        self.customer_container.pack(fill="both", expand=True)
+        self.customer_portal = CustomerPortalPage(
+            self.customer_container,
+            self.current_user or {},
+            on_logout=self.logout,
+        )
+
+    # ==================================================
+    # CREATE MAIN LAYOUT (ADMIN)
     # ==================================================
 
     def create_layout(self):

@@ -126,20 +126,17 @@ class BookingsPage:
             bg=self.white, fg=self.navy
         ).grid(row=2, column=0, sticky="w", padx=8, pady=7)
 
-        self.status_combo = ttk.Combobox(
-            form,
-            textvariable=self.status_var,
-            values=[
-                "CHO_XAC_NHAN",
-                "DA_XAC_NHAN",
-                "DA_HUY",
-                "HOAN_THANH"
-            ],
-            state="readonly"
+        # Trạng thái chỉ đọc; chuyển trạng thái bằng các nút nghiệp vụ.
+        self.status_display = ttk.Entry(
+            form, textvariable=self.status_var, state="readonly"
         )
-        self.status_combo.grid(
+        self.status_display.grid(
             row=2, column=1, sticky="ew", padx=8, pady=7
         )
+        tk.Label(
+            form, text="Dùng nút nghiệp vụ để chuyển trạng thái.",
+            bg=self.white, fg=self.gray, font=("Arial", 9, "italic")
+        ).grid(row=2, column=2, columnspan=2, sticky="w", padx=8, pady=7)
 
         # ---------------- BUTTONS ----------------
         button_frame = tk.Frame(
@@ -151,7 +148,10 @@ class BookingsPage:
         buttons = [
             ("KIỂM TRA PHÒNG TRỐNG", self.check_available_rooms, self.navy),
             ("THÊM BOOKING", self.add_booking, "#247A4B"),
-            ("CẬP NHẬT", self.update_booking, "#2367A5"),
+            ("CẬP NHẬT THÔNG TIN", self.update_booking, "#2367A5"),
+            ("XÁC NHẬN", self.confirm_booking, "#2878A8"),
+            ("CHECK-IN", self.check_in_booking, "#6C5CE7"),
+            ("CHECK-OUT", self.check_out_booking, "#138D75"),
             ("HỦY BOOKING", self.cancel_booking, "#C0392B"),
             ("LÀM MỚI", self.clear_form, self.gray)
         ]
@@ -237,6 +237,8 @@ class BookingsPage:
             "room",
             "checkin",
             "checkout",
+            "tien_phong_du_kien",
+            "mua_cao_diem",
             "status"
         )
 
@@ -254,6 +256,8 @@ class BookingsPage:
             "room": "Số phòng",
             "checkin": "Ngày nhận",
             "checkout": "Ngày trả",
+            "tien_phong_du_kien": "Tiền phòng đã chốt",
+            "mua_cao_diem": "Mùa cao điểm",
             "status": "Trạng thái"
         }
 
@@ -264,6 +268,8 @@ class BookingsPage:
             "room": 100,
             "checkin": 120,
             "checkout": 120,
+            "tien_phong_du_kien": 145,
+            "mua_cao_diem": 110,
             "status": 145
         }
 
@@ -481,6 +487,8 @@ class BookingsPage:
                     room_number,
                     str(checkin)[:10],
                     str(checkout)[:10],
+                    self.get_value(row, "tien_phong_du_kien", default=0),
+                    "CÓ" if self.get_value(row, "ap_dung_mua_cao_diem", default=0) else "KHÔNG",
                     status
                 )
             )
@@ -771,6 +779,44 @@ class BookingsPage:
     # =====================================================
     # HỦY BOOKING
     # =====================================================
+    def _run_booking_action(self, action, label, confirm_text):
+        if self.selected_id is None:
+            messagebox.showwarning("Chưa chọn Booking", "Vui lòng chọn Booking trên bảng trước.")
+            return
+        booking_id = self.selected_id
+        if not messagebox.askyesno(
+            f"Xác nhận {label}",
+            f"Bạn có chắc chắn muốn {confirm_text} Booking #{booking_id}?"
+        ):
+            return
+        try:
+            result = api_client.post(f"/api/bookings/{booking_id}/{action}", {})
+            messagebox.showinfo("Thành công", result.get("message", f"{label} Booking thành công."))
+            self.load_bookings()
+            self.load_reference_data()
+            self._select_booking_by_id(booking_id)
+        except APIError as e:
+            messagebox.showerror(f"Không thể {label} Booking", str(e))
+
+    def _select_booking_by_id(self, booking_id):
+        for item in self.tree.get_children():
+            values = self.tree.item(item, "values")
+            if values and str(values[0]) == str(booking_id):
+                self.tree.selection_set(item)
+                self.tree.focus(item)
+                self.tree.see(item)
+                self.select_booking()
+                return
+
+    def confirm_booking(self):
+        self._run_booking_action("confirm", "xác nhận", "xác nhận")
+
+    def check_in_booking(self):
+        self._run_booking_action("check-in", "nhận phòng", "nhận phòng")
+
+    def check_out_booking(self):
+        self._run_booking_action("check-out", "trả phòng", "trả phòng")
+
     def cancel_booking(self):
         if self.selected_id is None:
             messagebox.showwarning(

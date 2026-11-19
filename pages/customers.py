@@ -2,13 +2,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-import json
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
-
-
-# Địa chỉ API FastAPI
-API_BASE_URL = "http://127.0.0.1:8000/api/customers"
+from api_client import api_client
 
 
 class CustomersPage:
@@ -32,58 +26,21 @@ class CustomersPage:
         self.load_customers()
 
     # =====================================================
-    # API REQUEST
+    # API REQUEST - DÙNG CHUNG API CLIENT VÀ BEARER TOKEN
     # =====================================================
 
     def api_request(self, method, endpoint="", data=None):
-        url = API_BASE_URL + endpoint
-
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
-
-        body = None
-
-        if data is not None:
-            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-
-        request = Request(
-            url=url,
-            data=body,
-            headers=headers,
-            method=method
-        )
-
-        try:
-            with urlopen(request, timeout=10) as response:
-                response_body = response.read().decode("utf-8")
-
-                if not response_body:
-                    return {}
-
-                return json.loads(response_body)
-
-        except HTTPError as e:
-            error_body = e.read().decode("utf-8")
-
-            try:
-                error_data = json.loads(error_body)
-                detail = error_data.get("detail", error_body)
-            except (json.JSONDecodeError, AttributeError):
-                detail = error_body
-
-            raise Exception(f"HTTP {e.code}: {detail}")
-
-        except URLError as e:
-            raise Exception(
-                "Không thể kết nối FastAPI.\n"
-                "Hãy kiểm tra server FastAPI đã chạy chưa.\n\n"
-                f"Chi tiết: {e.reason}"
-            )
-
-        except json.JSONDecodeError:
-            raise Exception("API trả về dữ liệu JSON không hợp lệ.")
+        path = "/api/customers/" + endpoint.lstrip("/")
+        method = method.upper()
+        if method == "GET":
+            return api_client.get(path)
+        if method == "POST":
+            return api_client.post(path, data or {})
+        if method == "PUT":
+            return api_client.put(path, data or {})
+        if method == "DELETE":
+            return api_client.delete(path)
+        raise ValueError(f"HTTP method không được hỗ trợ: {method}")
 
     # =====================================================
     # EXTRACT CUSTOMER DATA

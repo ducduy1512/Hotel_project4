@@ -25,11 +25,15 @@ class RoomsPage:
             "red": "#C0392B"
         }
 
+        # Trạng thái lọc có đủ 3 trạng thái đọc từ Database.
         self.status_values = [
             "SAN_SANG",
             "DANG_SU_DUNG",
             "BAO_TRI"
         ]
+        # Khi tạo/cập nhật thủ công chỉ được chọn 2 trạng thái.
+        # DANG_SU_DUNG do Booking/check-in quản lý.
+        self.editable_status_values = ["SAN_SANG", "BAO_TRI"]
 
         self.build_ui()
         self.load_room_types()
@@ -63,7 +67,10 @@ class RoomsPage:
 
         tk.Label(
             header,
-            text="Quản lý danh sách phòng và tình trạng sử dụng",
+            text=(
+                "Quản lý danh sách phòng. DANG_SU_DUNG được đồng bộ tự động "
+                "từ Booking; thao tác cập nhật chỉ chọn SAN_SANG hoặc BAO_TRI."
+            ),
             font=("Arial", 11),
             fg=self.colors["gray"],
             bg=self.colors["background"]
@@ -202,7 +209,7 @@ class RoomsPage:
         self.status_combo = ttk.Combobox(
             form,
             textvariable=self.status_var,
-            values=self.status_values,
+            values=self.editable_status_values,
             state="readonly",
             width=25,
             font=("Arial", 10)
@@ -232,7 +239,7 @@ class RoomsPage:
             self.colors["green"]
         )
 
-        self.create_button(
+        self.update_button = self.create_button(
             button_frame,
             "CẬP NHẬT",
             self.update_room,
@@ -364,7 +371,7 @@ class RoomsPage:
     # =====================================
 
     def create_button(self, parent, text, command, color):
-        tk.Button(
+        button = tk.Button(
             parent,
             text=text,
             command=command,
@@ -375,7 +382,9 @@ class RoomsPage:
             padx=15,
             pady=9,
             cursor="hand2"
-        ).pack(side="left", padx=(0, 10))
+        )
+        button.pack(side="left", padx=(0, 10))
+        return button
 
     # =====================================
     # LOAD ROOM TYPES FROM API
@@ -538,7 +547,17 @@ class RoomsPage:
                 self.room_type_var.set(display_name)
                 break
 
-        self.status_var.set(values[5])
+        selected_status = values[5]
+        self.status_var.set(selected_status)
+
+        if selected_status == "DANG_SU_DUNG":
+            # Procedure từ chối thay đổi phòng còn Booking DANG_O.
+            # Khóa nút ngay trên GUI để tránh thao tác gây hiểu nhầm.
+            self.status_combo.configure(state="disabled")
+            self.update_button.configure(state="disabled")
+        else:
+            self.status_combo.configure(state="readonly")
+            self.update_button.configure(state="normal")
 
     # =====================================
     # VALIDATE FORM
@@ -563,10 +582,11 @@ class RoomsPage:
             )
             return None
 
-        if status not in self.status_values:
+        if status not in self.editable_status_values:
             messagebox.showwarning(
                 "Trạng thái không hợp lệ",
-                "Vui lòng chọn trạng thái phòng hợp lệ."
+                "Chỉ được chọn SAN_SANG hoặc BAO_TRI. "
+                "DANG_SU_DUNG được Booking tự động quản lý."
             )
             return None
 
@@ -701,6 +721,8 @@ class RoomsPage:
         self.room_number_var.set("")
         self.room_type_var.set("")
         self.status_var.set("SAN_SANG")
+        self.status_combo.configure(state="readonly")
+        self.update_button.configure(state="normal")
 
         selected = self.tree.selection()
 
