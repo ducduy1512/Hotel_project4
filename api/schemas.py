@@ -1,7 +1,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -29,13 +29,16 @@ class RoomTypeUpdate(BaseModel):
 class RoomCreate(BaseModel):
     so_phong: str = Field(min_length=1, max_length=20)
     loai_phong_id: int = Field(gt=0)
-    trang_thai: str = "SAN_SANG"
+    # Phòng mới chỉ có thể sẵn sàng hoặc bảo trì.
+    # DANG_SU_DUNG do Booking/check-in tự đồng bộ.
+    trang_thai: Literal["SAN_SANG", "BAO_TRI"] = "SAN_SANG"
 
 
 class RoomUpdate(BaseModel):
     so_phong: str = Field(min_length=1, max_length=20)
     loai_phong_id: int = Field(gt=0)
-    trang_thai: str
+    # Phù hợp với sp_cap_nhat_thong_tin_phong trong SQL V2.
+    trang_thai: Literal["SAN_SANG", "BAO_TRI"]
 
 
 # =========================================================
@@ -87,16 +90,17 @@ class BookingUpdate(BaseModel):
 # =========================================================
 
 class ServiceCreate(BaseModel):
-    ten: str = Field(min_length=1, max_length=255)
-    don_gia: Decimal = Field(gt=0)
+    # Khớp bảng dichvu: ten VARCHAR(100), don_gia >= 0, so_luong > 0.
+    ten: str = Field(min_length=1, max_length=100)
+    don_gia: Decimal = Field(ge=0)
     so_luong: int = Field(gt=0)
     phong_id: Optional[int] = Field(default=None, gt=0)
     booking_id: Optional[int] = Field(default=None, gt=0)
 
 
 class ServiceUpdate(BaseModel):
-    ten: str = Field(min_length=1, max_length=255)
-    don_gia: Decimal = Field(gt=0)
+    ten: str = Field(min_length=1, max_length=100)
+    don_gia: Decimal = Field(ge=0)
     so_luong: int = Field(gt=0)
     phong_id: Optional[int] = Field(default=None, gt=0)
     booking_id: Optional[int] = Field(default=None, gt=0)
@@ -153,45 +157,22 @@ class PeakSeasonUpdate(BaseModel):
 # =========================================================
 
 class RegisterRequest(BaseModel):
+    class Config:
+        extra = "forbid"
+
     username: str = Field(min_length=3, max_length=50)
     full_name: str = Field(min_length=2, max_length=100)
+    cccd: str = Field(min_length=9, max_length=20)
+    sdt: str = Field(min_length=9, max_length=20)
     password: str = Field(min_length=6, max_length=128)
+
+
+class CustomerPortalBookingCreate(BaseModel):
+    phong_id: int = Field(gt=0)
+    ngay_nhan: date
+    ngay_tra: date
 
 
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=1, max_length=128)
-
-
-# =========================================================
-# SERVICE CATALOG
-# =========================================================
-
-class ServiceCatalogCreate(BaseModel):
-    ten: str = Field(min_length=1, max_length=100)
-    don_gia: Decimal = Field(ge=0)
-    mo_ta: Optional[str] = Field(default=None, max_length=255)
-
-
-class ServiceCatalogUpdate(BaseModel):
-    ten: str = Field(min_length=1, max_length=100)
-    don_gia: Decimal = Field(ge=0)
-    mo_ta: Optional[str] = Field(default=None, max_length=255)
-    trang_thai: str = "DANG_HOAT_DONG"
-
-
-# =========================================================
-# ROOM TYPE DEFAULT SERVICES
-# =========================================================
-
-class RoomTypeDefaultServiceItem(BaseModel):
-    dichvu_id: int = Field(gt=0)
-    don_gia: Decimal = Field(ge=0)
-    so_luong_mac_dinh: int = Field(default=1, gt=0)
-
-
-class RoomTypeDefaultServicesUpdate(BaseModel):
-    dich_vu: list[RoomTypeDefaultServiceItem] = Field(
-        default_factory=list
-    )
-

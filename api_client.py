@@ -1,11 +1,15 @@
 
 import json
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 
 
-API_BASE_URL = "http://127.0.0.1:8000"
+load_dotenv(Path(__file__).resolve().parent / ".env")
+API_BASE_URL = os.getenv("HOTEL_API_URL", "http://127.0.0.1:8000")
 
 
 class APIError(Exception):
@@ -17,6 +21,13 @@ class APIClient:
     def __init__(self, base_url=API_BASE_URL, timeout=15):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.access_token = None
+
+    def set_token(self, token):
+        self.access_token = token or None
+
+    def clear_token(self):
+        self.access_token = None
 
     def request(self, method, endpoint, data=None, params=None):
         url = self.base_url + "/" + endpoint.lstrip("/")
@@ -35,6 +46,8 @@ class APIClient:
             "Accept": "application/json",
             "Content-Type": "application/json"
         }
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
 
         body = None
 

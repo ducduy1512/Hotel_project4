@@ -1,621 +1,337 @@
+"""Service endpoints mapped to the 8-table HOTEL ERD.
+
+The ERD has one service table only:
+- dichvu.booking_id IS NULL: default service attached to a room.
+- dichvu.booking_id IS NOT NULL: service used by a Booking.
+
+There is no dichvu_catalog or loaiphong_dichvu table in hotel_management_erd.
+"""
+
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, HTTPException
+from mysql.connector import Error
+
 from database import get_connection
+from api.schemas import ServiceCreate, ServiceUpdate
 
-from api.schemas import (
-    ServiceCreate,
-    ServiceUpdate,
-    ServiceCatalogCreate,
-    ServiceCatalogUpdate,
-    RoomTypeDefaultServicesUpdate,
-)
+router = APIRouter(prefix="/api/services", tags=["Services"])
 
-router = APIRouter(
-    prefix="/api/services",
-    tags=["Services"]
-)
-
-
-# =========================================================
-# HELPER
-# =========================================================
 
 def close_db(cursor, conn):
     try:
-        if cursor:
+        if cursor is not None:
             cursor.close()
     finally:
-        if conn:
+        if conn is not None and conn.is_connected():
             conn.close()
 
 
-# =========================================================
-# 1. SERVICE CATALOG
-# Bảng: dichvu_catalog
-# =========================================================
-
-@router.get("/catalog")
-def get_service_catalog():
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    try:
-        cursor.execute("""
-            SELECT
-                id,
-                ten,
-                don_gia,
-                trang_thai,
-                mo_ta
-            FROM dichvu_catalog
-            ORDER BY ten
-        """)
-
-        return cursor.fetchall()
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        close_db(cursor, conn)
-
-
-@router.post("/catalog")
-def create_service_catalog(service: ServiceCatalogCreate):
-    conn = get_connection()
-    cursor = conn.cursor()
+def _validate_service_values(ten: str, don_gia, so_luong: int):
+    name = (ten or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Tên dịch vụ không được để trống.")
+    if len(name) > 100:
+        raise HTTPException(
+            status_code=422,
+            detail="Tên dịch vụ tối đa 100 ký tự theo cột dichvu.ten.",
+        )
 
     try:
-        ten = service.ten.strip()
+        price = Decimal(str(don_gia))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="Đơn giá dịch vụ không hợp lệ.")
 
-        if not ten:
-            raise HTTPException(
-                status_code=400,
-                detail="Ten dich vu khong duoc de trong"
-            )
+    if not price.is_finite() or price < 0:
+        raise HTTPException(status_code=422, detail="Đơn giá dịch vụ phải lớn hơn hoặc bằng 0.")
+    if price.as_tuple().exponent < -2:
+        raise HTTPException(status_code=422, detail="Đơn giá chỉ được có tối đa 2 chữ số thập phân.")
 
-        cursor.execute("""
-            INSERT INTO dichvu_catalog (
-                ten,
-                don_gia,
-                trang_thai,
-                mo_ta
-            )
-            VALUES (%s, %s, 'DANG_HOAT_DONG', %s)
-        """, (
-            ten,
-            service.don_gia,
-            service.mo_ta
-        ))
+    if so_luong is None or int(so_luong) <= 0:
+        raise HTTPException(status_code=422, detail="Số lượng dịch vụ phải lớn hơn 0.")
 
-        service_id = cursor.lastrowid
-        conn.commit()
-
-        return {
-            "message": "Them danh muc dich vu thanh cong",
-            "id": service_id
-        }
-
-    except HTTPException:
-        conn.rollback()
-        raise
-
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        close_db(cursor, conn)
+    return name, price, int(so_luong)
 
 
-@router.put("/catalog/{service_id}")
-def update_service_catalog(
-    service_id: int,
-    service: ServiceCatalogUpdate
-):
-    conn = get_connection()
-    cursor = conn.cursor()
+def _raise_database_error(exc: Error):
+    """Map database constraints/triggers to a client-visible conflict."""
+    sqlstate = getattr(exc, "sqlstate", None)
+    errno = getattr(exc, "errno", None)
+    detail = getattr(exc, "msg", None) or str(exc)
 
-    try:
-        ten = service.ten.strip()
-
-        if not ten:
-            raise HTTPException(
-                status_code=400,
-                detail="Ten dich vu khong duoc de trong"
-            )
-
-        if service.trang_thai not in (
-            "DANG_HOAT_DONG",
-            "NGUNG_HOAT_DONG"
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="Trang thai dich vu khong hop le"
-            )
-
-        cursor.execute("""
-            UPDATE dichvu_catalog
-            SET ten = %s,
-                don_gia = %s,
-                trang_thai = %s,
-                mo_ta = %s
-            WHERE id = %s
-        """, (
-            ten,
-            service.don_gia,
-            service.trang_thai,
-            service.mo_ta,
-            service_id
-        ))
-
-        if cursor.rowcount == 0:
-            cursor.execute("""
-                SELECT id
-                FROM dichvu_catalog
-                WHERE id = %s
-            """, (service_id,))
-
-            if cursor.fetchone() is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Danh muc dich vu khong ton tai"
-                )
-
-        conn.commit()
-
-        return {
-            "message": "Cap nhat danh muc dich vu thanh cong"
-        }
-
-    except HTTPException:
-        conn.rollback()
-        raise
-
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        close_db(cursor, conn)
+    if sqlstate in {"45000", "23000"} or errno in {1062, 1451, 1452, 1644, 3819}:
+        raise HTTPException(status_code=409, detail=detail) from exc
+    raise HTTPException(status_code=500, detail="Lỗi cơ sở dữ liệu khi xử lý dịch vụ.") from exc
 
 
-# =========================================================
-# 2. DEFAULT SERVICES BY ROOM TYPE
-# Bảng: loaiphong_dichvu
-# =========================================================
+def _read_procedure_result(cursor):
+    """Read all result sets from sp_them_dichvu_booking and return first row."""
+    first_row = None
+    for result_cursor in cursor.stored_results():
+        try:
+            rows = result_cursor.fetchall()
+            if rows and first_row is None:
+                first_row = rows[0]
+        finally:
+            result_cursor.close()
+    return first_row
 
-@router.get("/room-types/{room_type_id}/defaults")
-def get_room_type_default_services(room_type_id: int):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    try:
-        cursor.execute("""
-            SELECT id, ten, gia_co_ban, suc_chua
-            FROM loaiphong
-            WHERE id = %s
-        """, (room_type_id,))
-
-        room_type = cursor.fetchone()
-
-        if room_type is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Loai phong khong ton tai"
-            )
-
-        cursor.execute("""
-            SELECT
-                lpd.id AS mapping_id,
-                dc.id AS dichvu_id,
-                dc.ten,
-                lpd.don_gia,
-                lpd.so_luong_mac_dinh,
-                dc.trang_thai,
-                dc.mo_ta
-            FROM loaiphong_dichvu lpd
-            JOIN dichvu_catalog dc
-                ON dc.id = lpd.dichvu_id
-            WHERE lpd.loaiphong_id = %s
-            ORDER BY dc.ten
-        """, (room_type_id,))
-
-        return {
-            "room_type": room_type,
-            "dich_vu": cursor.fetchall()
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        close_db(cursor, conn)
-
-
-@router.put("/room-types/{room_type_id}/defaults")
-def update_room_type_default_services(
-    room_type_id: int,
-    data: RoomTypeDefaultServicesUpdate
-):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    try:
-        # Check room type
-        cursor.execute("""
-            SELECT id
-            FROM loaiphong
-            WHERE id = %s
-        """, (room_type_id,))
-
-        if cursor.fetchone() is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Loai phong khong ton tai"
-            )
-
-        # Check duplicate service IDs
-        service_ids = [
-            item.dichvu_id
-            for item in data.dich_vu
-        ]
-
-        if len(service_ids) != len(set(service_ids)):
-            raise HTTPException(
-                status_code=400,
-                detail="Khong duoc chon trung dich vu"
-            )
-
-        # Validate all services before changing mappings
-        for item in data.dich_vu:
-            cursor.execute("""
-                SELECT id
-                FROM dichvu_catalog
-                WHERE id = %s
-                  AND trang_thai = 'DANG_HOAT_DONG'
-            """, (item.dichvu_id,))
-
-            if cursor.fetchone() is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Dich vu ID {item.dichvu_id} "
-                        "khong ton tai hoac da ngung hoat dong"
-                    )
-                )
-
-        # Replace old default-service configuration
-        cursor.execute("""
-            DELETE FROM loaiphong_dichvu
-            WHERE loaiphong_id = %s
-        """, (room_type_id,))
-
-        for item in data.dich_vu:
-            cursor.execute("""
-                INSERT INTO loaiphong_dichvu (
-                    loaiphong_id,
-                    dichvu_id,
-                    don_gia,
-                    so_luong_mac_dinh
-                )
-                VALUES (%s, %s, %s, %s)
-            """, (
-                room_type_id,
-                item.dichvu_id,
-                item.don_gia,
-                item.so_luong_mac_dinh
-            ))
-
-        conn.commit()
-
-        return {
-            "message": "Cap nhat dich vu mac dinh thanh cong",
-            "room_type_id": room_type_id,
-            "total_services": len(data.dich_vu)
-        }
-
-    except HTTPException:
-        conn.rollback()
-        raise
-
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        close_db(cursor, conn)
-
-
-# =========================================================
-# 3. SERVICES AVAILABLE FOR A ROOM
-# =========================================================
-
-@router.get("/rooms/{room_id}/options")
-def get_room_service_options(room_id: int):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    try:
-        cursor.execute("""
-            SELECT
-                p.id AS phong_id,
-                p.so_phong,
-                p.loai_phong_id,
-                lp.ten AS ten_loai_phong
-            FROM phong p
-            JOIN loaiphong lp
-                ON lp.id = p.loai_phong_id
-            WHERE p.id = %s
-        """, (room_id,))
-
-        room = cursor.fetchone()
-
-        if room is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Phong khong ton tai"
-            )
-
-        cursor.execute("""
-            SELECT
-                dc.id AS dichvu_id,
-                dc.ten,
-                dc.mo_ta,
-                lpd.don_gia,
-                lpd.so_luong_mac_dinh
-            FROM loaiphong_dichvu lpd
-            JOIN dichvu_catalog dc
-                ON dc.id = lpd.dichvu_id
-            WHERE lpd.loaiphong_id = %s
-              AND dc.trang_thai = 'DANG_HOAT_DONG'
-            ORDER BY dc.ten
-        """, (room["loai_phong_id"],))
-
-        services = cursor.fetchall()
-
-        return {
-            "message": "Lay danh sach dich vu thanh cong",
-            "phong": room,
-            "total": len(services),
-            "data": services
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        close_db(cursor, conn)
-
-
-# =========================================================
-# 4. LEGACY SERVICE API
-# Giữ lại để tương thích với giao diện cũ.
-# Bảng: dichvu
-# =========================================================
 
 @router.get("/")
 def get_services():
+    """List services consumed by Bookings (the scope shown in the Tkinter page)."""
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
-
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT
-                id,
-                ten,
-                don_gia,
-                so_luong,
-                phong_id,
-                booking_id
-            FROM dichvu
-            ORDER BY id
-        """)
-
+                d.id,
+                d.ten,
+                d.don_gia,
+                d.so_luong,
+                d.phong_id,
+                d.booking_id,
+                p.so_phong,
+                b.trang_thai AS trang_thai_booking,
+                b.ngay_nhan,
+                b.ngay_tra
+            FROM dichvu d
+            JOIN booking b ON b.id = d.booking_id
+            JOIN phong p ON p.id = d.phong_id
+            ORDER BY d.id DESC
+            """
+        )
         return cursor.fetchall()
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+    except Error as exc:
+        _raise_database_error(exc)
     finally:
         close_db(cursor, conn)
 
 
-@router.post("/")
-def create_service(service: ServiceCreate):
+@router.get("/rooms/{room_id}/options")
+def get_room_service_options(room_id: int):
+    """Return room-default services stored as dichvu rows with NULL booking_id."""
     conn = get_connection()
-    cursor = conn.cursor()
-
+    cursor = conn.cursor(dictionary=True)
     try:
-        phong_id = service.phong_id
+        cursor.execute(
+            """
+            SELECT id, so_phong, loai_phong_id
+            FROM phong
+            WHERE id = %s
+            """,
+            (room_id,),
+        )
+        room = cursor.fetchone()
+        if room is None:
+            raise HTTPException(status_code=404, detail="Phòng không tồn tại.")
 
-        if service.booking_id is not None:
-            cursor.execute(
-                "SELECT phong_id FROM booking WHERE id = %s",
-                (service.booking_id,)
-            )
-
-            booking = cursor.fetchone()
-
-            if booking is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Booking khong ton tai"
-                )
-
-            if phong_id is not None and phong_id != booking[0]:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Phong khong khop voi booking"
-                )
-
-            phong_id = booking[0]
-
-        if phong_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Phai chon phong hoac booking"
-            )
-
-        cursor.execute("""
-            INSERT INTO dichvu (
+        cursor.execute(
+            """
+            SELECT
+                id AS dichvu_id,
                 ten,
                 don_gia,
-                so_luong,
-                phong_id,
-                booking_id
-            )
-            VALUES (%s, %s, %s, %s, %s)
-        """, (
-            service.ten,
-            service.don_gia,
-            service.so_luong,
-            phong_id,
-            service.booking_id
-        ))
+                so_luong
+            FROM dichvu
+            WHERE phong_id = %s
+              AND booking_id IS NULL
+            ORDER BY ten, id
+            """,
+            (room_id,),
+        )
+        services = cursor.fetchall()
+        return {
+            "message": "Lấy dịch vụ mặc định của phòng thành công.",
+            "phong": room,
+            "total": len(services),
+            "data": services,
+        }
+    except HTTPException:
+        raise
+    except Error as exc:
+        _raise_database_error(exc)
+    finally:
+        close_db(cursor, conn)
 
+
+@router.post("/", status_code=201)
+def create_service(service: ServiceCreate):
+    """Create either a room-default service or a Booking-consumption service."""
+    ten, don_gia, so_luong = _validate_service_values(
+        service.ten, service.don_gia, service.so_luong
+    )
+    if service.booking_id is None and service.phong_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Dịch vụ phải thuộc một Booking hoặc một phòng.",
+        )
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        if service.booking_id is not None:
+            # If a caller sends both identifiers, reject a mismatched room.
+            # The procedure remains authoritative and locks/rechecks the Booking.
+            if service.phong_id is not None:
+                cursor.execute(
+                    "SELECT phong_id FROM booking WHERE id = %s",
+                    (service.booking_id,),
+                )
+                booking_row = cursor.fetchone()
+                if booking_row is None:
+                    raise HTTPException(status_code=404, detail="Booking không tồn tại.")
+                if int(booking_row[0]) != service.phong_id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Phòng được gửi lên không khớp với phòng của Booking.",
+                    )
+
+            # The stored procedure owns its transaction (START TRANSACTION/COMMIT).
+            # Do not wrap it in another API transaction.
+            cursor.callproc(
+                "sp_them_dichvu_booking",
+                [service.booking_id, ten, don_gia, so_luong],
+            )
+            row = _read_procedure_result(cursor)
+            if row is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Stored Procedure đã chạy nhưng không trả về mã dịch vụ.",
+                )
+            # The procedure's first result column is dichvu_id.
+            service_id = row.get("dichvu_id") if isinstance(row, dict) else row[0]
+            return {
+                "message": "Thêm dịch vụ vào Booking thành công.",
+                "id": int(service_id),
+                "booking_id": service.booking_id,
+            }
+
+        # A default room service has booking_id = NULL. The insert trigger checks
+        # values and requires a non-null room_id.
+        cursor.execute(
+            "SELECT id FROM phong WHERE id = %s FOR UPDATE",
+            (service.phong_id,),
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Phòng không tồn tại.")
+
+        cursor.execute(
+            """
+            INSERT INTO dichvu (ten, don_gia, so_luong, phong_id, booking_id)
+            VALUES (%s, %s, %s, %s, NULL)
+            """,
+            (ten, don_gia, so_luong, service.phong_id),
+        )
         service_id = cursor.lastrowid
         conn.commit()
-
         return {
-            "message": "Them dich vu thanh cong",
-            "id": service_id
+            "message": "Thêm dịch vụ mặc định cho phòng thành công.",
+            "id": service_id,
+            "phong_id": service.phong_id,
         }
-
     except HTTPException:
         conn.rollback()
         raise
-
-    except Exception as e:
+    except Error as exc:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
+        _raise_database_error(exc)
     finally:
         close_db(cursor, conn)
 
 
 @router.put("/{service_id}")
-def update_service(
-    service_id: int,
-    service: ServiceUpdate
-):
+def update_service(service_id: int, service: ServiceUpdate):
+    """Update service values without reassigning its room/Booking relationship."""
+    ten, don_gia, so_luong = _validate_service_values(
+        service.ten, service.don_gia, service.so_luong
+    )
+
     conn = get_connection()
-    cursor = conn.cursor()
-
+    cursor = conn.cursor(dictionary=True)
     try:
-        phong_id = service.phong_id
+        cursor.execute(
+            """
+            SELECT id, phong_id, booking_id
+            FROM dichvu
+            WHERE id = %s
+            FOR UPDATE
+            """,
+            (service_id,),
+        )
+        current = cursor.fetchone()
+        if current is None:
+            raise HTTPException(status_code=404, detail="Dịch vụ không tồn tại.")
 
-        if service.booking_id is not None:
-            cursor.execute(
-                "SELECT phong_id FROM booking WHERE id = %s",
-                (service.booking_id,)
-            )
+        old_booking_id = current["booking_id"]
+        old_room_id = current["phong_id"]
 
-            booking = cursor.fetchone()
-
-            if booking is None:
+        # A service already tied to a Booking cannot be detached or moved to
+        # another Booking. The database trigger enforces the same rule.
+        if old_booking_id is not None:
+            if service.booking_id != old_booking_id:
                 raise HTTPException(
-                    status_code=404,
-                    detail="Booking khong ton tai"
+                    status_code=409,
+                    detail="Không được chuyển hoặc tách dịch vụ đã gắn với Booking.",
+                )
+            if service.phong_id is not None and service.phong_id != old_room_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Không được đổi phòng của dịch vụ thuộc Booking.",
+                )
+        else:
+            # Room-default rows remain room-default rows; the GUI page manages
+            # Booking services only, but the API preserves this data type.
+            if service.booking_id is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Không được chuyển dịch vụ mặc định của phòng sang Booking.",
+                )
+            if service.phong_id is not None and service.phong_id != old_room_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Không hỗ trợ chuyển dịch vụ mặc định sang phòng khác.",
                 )
 
-            if phong_id is not None and phong_id != booking[0]:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Phong khong khop voi booking"
-                )
-
-            phong_id = booking[0]
-
-        if phong_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Phai chon phong hoac booking"
-            )
-
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE dichvu
             SET ten = %s,
                 don_gia = %s,
-                so_luong = %s,
-                phong_id = %s,
-                booking_id = %s
+                so_luong = %s
             WHERE id = %s
-        """, (
-            service.ten,
-            service.don_gia,
-            service.so_luong,
-            phong_id,
-            service.booking_id,
-            service_id
-        ))
-
-        if cursor.rowcount == 0:
-            cursor.execute(
-                "SELECT id FROM dichvu WHERE id = %s",
-                (service_id,)
-            )
-
-            if cursor.fetchone() is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Dich vu khong ton tai"
-                )
-
+            """,
+            (ten, don_gia, so_luong, service_id),
+        )
         conn.commit()
-
-        return {
-            "message": "Cap nhat dich vu thanh cong"
-        }
-
+        return {"message": "Cập nhật dịch vụ thành công.", "id": service_id}
     except HTTPException:
         conn.rollback()
         raise
-
-    except Exception as e:
+    except Error as exc:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
+        _raise_database_error(exc)
     finally:
         close_db(cursor, conn)
 
 
 @router.delete("/{service_id}")
 def delete_service(service_id: int):
+    """Delete a service only when database triggers permit the operation."""
     conn = get_connection()
     cursor = conn.cursor()
-
     try:
-        cursor.execute(
-            "DELETE FROM dichvu WHERE id = %s",
-            (service_id,)
-        )
-
+        cursor.execute("DELETE FROM dichvu WHERE id = %s", (service_id,))
         if cursor.rowcount == 0:
-            raise HTTPException(
-                status_code=404,
-                detail="Dich vu khong ton tai"
-            )
-
+            raise HTTPException(status_code=404, detail="Dịch vụ không tồn tại.")
         conn.commit()
-
-        return {
-            "message": "Xoa dich vu thanh cong"
-        }
-
+        return {"message": "Xóa dịch vụ thành công.", "id": service_id}
     except HTTPException:
         conn.rollback()
         raise
-
-    except Exception as e:
+    except Error as exc:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
+        _raise_database_error(exc)
     finally:
         close_db(cursor, conn)

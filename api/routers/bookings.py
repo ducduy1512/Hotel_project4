@@ -1,670 +1,370 @@
-
 from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from mysql.connector import Error
 
 from api.database import get_db
+from api.schemas import BookingUpdate
 
 
-router = APIRouter(
-    prefix="/api/bookings",
-    tags=["Bookings"]
-)
+class BookingCreateRequest(BaseModel):
+    """Payload đúng với bảng Booking trong ERD 8 bảng."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    phong_id: int = Field(gt=0)
+    khach_id: int = Field(gt=0)
+    ngay_nhan: date
+    ngay_tra: date
+
+router = APIRouter(prefix="/api/bookings", tags=["Bookings"])
 
 
-# ==================================================
-# SCHEMAS
-# ==================================================
-
-from api.schemas import BookingCreate, BookingUpdate
-
-
-# ==================================================
-# VALIDATE DATES
-# ==================================================
-
-def validate_dates(ngay_nhan, ngay_tra):
+def validate_dates(ngay_nhan: date, ngay_tra: date) -> None:
     if ngay_tra <= ngay_nhan:
         raise HTTPException(
             status_code=422,
-            detail="Ngày trả phòng phải sau ngày nhận phòng."
+            detail="Ngày trả phòng phải sau ngày nhận phòng.",
         )
 
 
-# ==================================================
-# HELPER: ĐÓNG CÁC RESULT SET CỦA PROCEDURE
-# ==================================================
+def read_procedure_rows(cursor):
+    """Đọc hết mọi result set do stored procedure trả về."""
+    rows = []
+    for result_cursor in cursor.stored_results():
+        try:
+            rows.extend(result_cursor.fetchall())
+        finally:
+            result_cursor.close()
+    return rows
 
-def close_procedure_results(cursor):
-    for result in cursor.stored_results():
-        result.fetchall()
-        result.close()
 
+def booking_select_sql(where_clause: str = "") -> str:
+    return f"""
+        SELECT
+            b.id,
+            b.phong_id,
+            p.so_phong,
+            b.khach_id,
+            k.ho_ten,
+            b.ngay_nhan,
+            b.ngay_tra,
+            b.trang_thai,
+            b.tien_phong_du_kien,
+            b.ap_dung_mua_cao_diem,
+            b.chi_tiet_mua_cao_diem
+        FROM booking b
+        JOIN phong p ON p.id = b.phong_id
+        JOIN khach k ON k.id = b.khach_id
+        {where_clause}
+    """
 
-# ==================================================
-# GET: DANH SÁCH BOOKING
-# ==================================================
 
 @router.get("/")
 def get_bookings(db=Depends(get_db)):
     cursor = db.cursor(dictionary=True)
-
     try:
-        cursor.execute("""
-            SELECT
-                b.id,
-                b.phong_id,
-                p.so_phong,
-                b.khach_id,
-                k.ho_ten,
-                b.ngay_nhan,
-                b.ngay_tra,
-                b.trang_thai
-            FROM booking b
-            JOIN phong p
-                ON b.phong_id = p.id
-            JOIN khach k
-                ON b.khach_id = k.id
-            ORDER BY b.id DESC
-        """)
-
+        cursor.execute(booking_select_sql("ORDER BY b.id DESC"))
         return cursor.fetchall()
-
-    except Error as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
+    except Error as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         cursor.close()
 
 
-# ==================================================
-# GET: KIỂM TRA PHÒNG TRỐNG
-# Đặt trước GET /{booking_id} để tránh xung đột URL
-# ==================================================
-
+# Giữ cả hai URL: GUI hiện tại đang gọi /available-rooms; URL /search
+# cũng được giữ để các client/API docs cũ không bị hỏng.
+@router.get("/available-rooms")
 @router.get("/available-rooms/search")
 def get_available_rooms(
     ngay_nhan: date = Query(...),
     ngay_tra: date = Query(...),
-    db=Depends(get_db)
+    db=Depends(get_db),
 ):
     validate_dates(ngay_nhan, ngay_tra)
-
     cursor = db.cursor(dictionary=True)
-
     try:
         cursor.callproc(
             "sp_kiem_tra_phong_trong",
-            [ngay_nhan, ngay_tra]
+            [ngay_nhan, ngay_tra],
         )
-
         available_rooms = []
-
-        for result in cursor.stored_results():
-            rows = result.fetchall()
-
-            if result.description:
-                columns = [
-                    column[0]
-                    for column in result.description
-                ]
-
-                available_rooms.extend([
-                    dict(zip(columns, row))
-                    for row in rows
-                ])
-
-            result.close()
+        for result_cursor in cursor.stored_results():
+            try:
+                available_rooms.extend(result_cursor.fetchall())
+            finally:
+                result_cursor.close()
 
         return {
             "ngay_nhan": ngay_nhan,
             "ngay_tra": ngay_tra,
             "total": len(available_rooms),
-            "rooms": available_rooms
+            "rooms": available_rooms,
         }
-
-    except Error as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
-
+    except Error as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         cursor.close()
 
-
-# ==================================================
-# GET: CHI TIẾT BOOKING
-# ==================================================
 
 @router.get("/{booking_id}")
-def get_booking(
-    booking_id: int,
-    db=Depends(get_db)
-):
+def get_booking(booking_id: int, db=Depends(get_db)):
     cursor = db.cursor(dictionary=True)
-
     try:
-        cursor.execute("""
-            SELECT
-                b.id,
-                b.phong_id,
-                p.so_phong,
-                b.khach_id,
-                k.ho_ten,
-                b.ngay_nhan,
-                b.ngay_tra,
-                b.trang_thai
-            FROM booking b
-            JOIN phong p
-                ON b.phong_id = p.id
-            JOIN khach k
-                ON b.khach_id = k.id
-            WHERE b.id = %s
-        """, (booking_id,))
-
+        cursor.execute(
+            booking_select_sql("WHERE b.id = %s"),
+            (booking_id,),
+        )
         booking = cursor.fetchone()
-
         if booking is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy booking."
-            )
+            raise HTTPException(status_code=404, detail="Không tìm thấy Booking.")
 
+        cursor.execute(
+            """
+            SELECT
+                id AS dichvu_id,
+                ten,
+                don_gia,
+                so_luong,
+                don_gia * so_luong AS thanh_tien
+            FROM dichvu
+            WHERE booking_id = %s
+            ORDER BY id
+            """,
+            (booking_id,),
+        )
+        booking["dich_vu"] = cursor.fetchall()
         return booking
-
     except HTTPException:
         raise
-
-    except Error as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
+    except Error as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         cursor.close()
-
-
-
-# ==================================================
-# POST: TẠO BOOKING KÈM DỊCH VỤ KHÁCH LỰA CHỌN
-# Sử dụng:
-# - Stored procedure sp_tao_booking
-# - Bảng dichvu_catalog
-# - Bảng loaiphong_dichvu
-# - Bảng booking_dichvu
-# ==================================================
 
 
 @router.post("/", status_code=201)
-def create_booking(
-    booking: BookingCreate,
-    db=Depends(get_db)
-):
-    validate_dates(
-        booking.ngay_nhan,
-        booking.ngay_tra
-    )
+def create_booking(booking: BookingCreateRequest, db=Depends(get_db)):
+    validate_dates(booking.ngay_nhan, booking.ngay_tra)
 
-    cursor = None
-    transaction_started = False
+    # Dịch vụ mặc định được trg_booking_after_insert sao chép từ các dòng
+    # dichvu có booking_id IS NULL. Dịch vụ phát sinh được thêm sau qua /api/services/.
 
+    cursor = db.cursor(dictionary=True)
     try:
-        # =================================================
-        # 1. BẮT ĐẦU TRANSACTION
-        # =================================================
-
-        db.start_transaction()
-        transaction_started = True
-
-        cursor = db.cursor(dictionary=True)
-
-        # =================================================
-        # 2. KIỂM TRA PHÒNG VÀ LẤY LOẠI PHÒNG
-        # =================================================
-
-        cursor.execute("""
-            SELECT
-                p.id,
-                p.so_phong,
-                p.loai_phong_id,
-                lp.ten AS ten_loai_phong
-            FROM phong p
-            JOIN loaiphong lp
-                ON lp.id = p.loai_phong_id
-            WHERE p.id = %s
-            FOR UPDATE
-        """, (booking.phong_id,))
-
-        room = cursor.fetchone()
-
-        if room is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy phòng."
-            )
-
-        # =================================================
-        # 3. KIỂM TRA CÁC DỊCH VỤ KHÁCH LỰA CHỌN
-        # =================================================
-
-        selected_services = booking.dich_vu or []
-
-        service_ids = [
-            item.dichvu_id
-            for item in selected_services
-        ]
-
-        # Không cho chọn trùng dịch vụ
-        if len(service_ids) != len(set(service_ids)):
-            raise HTTPException(
-                status_code=400,
-                detail="Không được chọn trùng dịch vụ."
-            )
-
-        services_to_insert = []
-
-        for item in selected_services:
-
-            cursor.execute("""
-                SELECT
-                    dc.id AS dichvu_id,
-                    dc.ten,
-                    lpd.don_gia
-                FROM loaiphong_dichvu lpd
-                JOIN dichvu_catalog dc
-                    ON dc.id = lpd.dichvu_id
-                WHERE lpd.loaiphong_id = %s
-                  AND dc.id = %s
-                  AND dc.trang_thai = 'DANG_HOAT_DONG'
-            """, (
-                room["loai_phong_id"],
-                item.dichvu_id
-            ))
-
-            service = cursor.fetchone()
-
-            if service is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Dịch vụ ID {item.dichvu_id} "
-                        "không khả dụng cho loại phòng này."
-                    )
-                )
-
-            services_to_insert.append({
-                "dichvu_id": service["dichvu_id"],
-                "ten": service["ten"],
-                "don_gia": service["don_gia"],
-                "so_luong": item.so_luong
-            })
-
-        # =================================================
-        # 4. GỌI STORED PROCEDURE TẠO BOOKING
-        # =================================================
-
+        # sp_tao_booking tự START TRANSACTION và COMMIT bên trong procedure.
+        # Không mở transaction bên ngoài ở API vì nested START/COMMIT có thể
+        # commit sớm transaction của API và làm rollback không còn hiệu lực.
         cursor.callproc(
             "sp_tao_booking",
             [
                 booking.phong_id,
                 booking.khach_id,
                 booking.ngay_nhan,
-                booking.ngay_tra
-            ]
+                booking.ngay_tra,
+            ],
         )
+        procedure_rows = read_procedure_rows(cursor)
+        procedure_result = procedure_rows[0] if procedure_rows else {}
+        new_id = procedure_result.get("booking_id") if isinstance(
+            procedure_result, dict
+        ) else None
 
-        # Đọc và đóng tất cả result set của procedure
-        close_procedure_results(cursor)
-
-        # Lấy ID booking vừa tạo
-        cursor.execute("""
-            SELECT LAST_INSERT_ID() AS new_id
-        """)
-
-        id_result = cursor.fetchone()
-
-        new_id = (
-            id_result["new_id"]
-            if id_result
-            else None
-        )
+        if not new_id:
+            # Fallback an toàn cho connector/procedure trả kết quả khác dạng.
+            cursor.execute(
+                """
+                SELECT id
+                FROM booking
+                WHERE phong_id = %s
+                  AND khach_id = %s
+                  AND ngay_nhan = %s
+                  AND ngay_tra = %s
+                  AND trang_thai = 'CHO_XAC_NHAN'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (
+                    booking.phong_id,
+                    booking.khach_id,
+                    booking.ngay_nhan,
+                    booking.ngay_tra,
+                ),
+            )
+            row = cursor.fetchone()
+            new_id = row["id"] if row else None
 
         if not new_id:
             raise HTTPException(
                 status_code=500,
-                detail="Không lấy được ID booking mới."
+                detail="Procedure đã chạy nhưng API không lấy được Booking ID.",
             )
 
-        # =================================================
-        # 5. LƯU DỊCH VỤ KHÁCH ĐÃ CHỌN
-        # =================================================
-
-        for service in services_to_insert:
-
-            cursor.execute("""
-                INSERT INTO booking_dichvu (
-                    booking_id,
-                    dichvu_id,
-                    ten_dich_vu,
-                    don_gia,
-                    so_luong,
-                    nguon
-                )
-                VALUES (
-                    %s, %s, %s, %s, %s, 'DAT_TRUOC'
-                )
-            """, (
-                new_id,
-                service["dichvu_id"],
-                service["ten"],
-                service["don_gia"],
-                service["so_luong"]
-            ))
-
-        # =================================================
-        # 6. LẤY THÔNG TIN BOOKING
-        # =================================================
-
-        cursor.execute("""
-            SELECT
-                b.id,
-                b.phong_id,
-                p.so_phong,
-                b.khach_id,
-                k.ho_ten,
-                b.ngay_nhan,
-                b.ngay_tra,
-                b.trang_thai
-            FROM booking b
-            JOIN phong p
-                ON b.phong_id = p.id
-            JOIN khach k
-                ON b.khach_id = k.id
-            WHERE b.id = %s
-        """, (new_id,))
-
+        cursor.execute(
+            booking_select_sql("WHERE b.id = %s"),
+            (new_id,),
+        )
         new_booking = cursor.fetchone()
-
         if new_booking is None:
             raise HTTPException(
                 status_code=500,
-                detail="Không tìm thấy booking vừa tạo."
+                detail="Không tìm thấy Booking vừa tạo.",
             )
 
-        # =================================================
-        # 7. LẤY DANH SÁCH DỊCH VỤ BOOKING
-        # =================================================
-
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT
-                id,
-                dichvu_id,
-                ten_dich_vu,
+                id AS dichvu_id,
+                ten,
                 don_gia,
                 so_luong,
-                nguon
-            FROM booking_dichvu
+                don_gia * so_luong AS thanh_tien
+            FROM dichvu
             WHERE booking_id = %s
             ORDER BY id
-        """, (new_id,))
-
-        booking_services = cursor.fetchall()
-
-        # =================================================
-        # 8. COMMIT - CHỈ KHI TẤT CẢ ĐỀU THÀNH CÔNG
-        # =================================================
-
-        db.commit()
-        transaction_started = False
-
-        # =================================================
-        # 9. TRẢ KẾT QUẢ
-        # =================================================
+            """,
+            (new_id,),
+        )
+        services = cursor.fetchall()
 
         return {
-            "message": "Tạo booking thành công",
+            "message": "Tạo Booking thành công",
             "id": new_id,
             "booking": new_booking,
-            "dich_vu": booking_services,
-            "tong_so_dich_vu": len(booking_services)
+            "dich_vu": services,
+            "tong_so_dich_vu": len(services),
         }
-
     except HTTPException:
-        if transaction_started:
-            db.rollback()
-            transaction_started = False
+        # Procedure có EXIT HANDLER tự rollback nếu phát sinh lỗi bên trong.
         raise
-
-    except Error as e:
-        if transaction_started:
-            db.rollback()
-            transaction_started = False
-
-        raise HTTPException(
-            status_code=409,
-            detail=str(e)
-        )
-
-    except Exception as e:
-        if transaction_started:
-            db.rollback()
-            transaction_started = False
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
+    except Error as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     finally:
-        if cursor is not None:
-            cursor.close()
+        cursor.close()
 
-
-
-# ==================================================
-# PUT: CẬP NHẬT BOOKING
-# ==================================================
 
 @router.put("/{booking_id}")
 def update_booking(
     booking_id: int,
     booking: BookingUpdate,
-    db=Depends(get_db)
+    db=Depends(get_db),
 ):
-    validate_dates(
-        booking.ngay_nhan,
-        booking.ngay_tra
-    )
-
-    # Bắt đầu transaction trước khi thực hiện các thao tác database
-    db.start_transaction()
-
+    validate_dates(booking.ngay_nhan, booking.ngay_tra)
     cursor = db.cursor(dictionary=True)
-
     try:
-        # Kiểm tra booking tồn tại
-        cursor.execute("""
-            SELECT id, trang_thai
-            FROM booking
-            WHERE id = %s
-        """, (booking_id,))
+        db.start_transaction()
+        cursor.execute(
+            "SELECT id, trang_thai FROM booking WHERE id = %s FOR UPDATE",
+            (booking_id,),
+        )
+        existing = cursor.fetchone()
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Không tìm thấy Booking.")
 
-        existing_booking = cursor.fetchone()
-
-        if existing_booking is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy booking."
-            )
-
-        # Không cho sửa booking đã hủy hoặc hoàn thành
-        if existing_booking["trang_thai"] not in (
-            "CHO_XAC_NHAN",
-            "DA_XAC_NHAN"
-        ):
+        if existing["trang_thai"] not in ("CHO_XAC_NHAN", "DA_XAC_NHAN"):
             raise HTTPException(
                 status_code=409,
-                detail="Không thể cập nhật booking đã hủy hoặc hoàn thành."
+                detail="Chỉ được sửa Booking đang chờ hoặc đã xác nhận.",
             )
 
-        # Kiểm tra phòng tồn tại
-        cursor.execute("""
-            SELECT id
-            FROM phong
-            WHERE id = %s
-        """, (booking.phong_id,))
-
-        if cursor.fetchone() is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy phòng."
-            )
-
-        # Kiểm tra khách hàng tồn tại
-        cursor.execute("""
-            SELECT id
-            FROM khach
-            WHERE id = %s
-        """, (booking.khach_id,))
-
-        if cursor.fetchone() is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy khách hàng."
-            )
-
-        # Cập nhật booking
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE booking
-            SET
-                phong_id = %s,
+            SET phong_id = %s,
                 khach_id = %s,
                 ngay_nhan = %s,
                 ngay_tra = %s
             WHERE id = %s
-        """, (
-            booking.phong_id,
-            booking.khach_id,
-            booking.ngay_nhan,
-            booking.ngay_tra,
-            booking_id
-        ))
-
+            """,
+            (
+                booking.phong_id,
+                booking.khach_id,
+                booking.ngay_nhan,
+                booking.ngay_tra,
+                booking_id,
+            ),
+        )
+        cursor.execute(
+            booking_select_sql("WHERE b.id = %s"),
+            (booking_id,),
+        )
+        updated = cursor.fetchone()
         db.commit()
-
-        # Lấy thông tin sau cập nhật
-        cursor.execute("""
-            SELECT
-                b.id,
-                b.phong_id,
-                p.so_phong,
-                b.khach_id,
-                k.ho_ten,
-                b.ngay_nhan,
-                b.ngay_tra,
-                b.trang_thai
-            FROM booking b
-            JOIN phong p
-                ON b.phong_id = p.id
-            JOIN khach k
-                ON b.khach_id = k.id
-            WHERE b.id = %s
-        """, (booking_id,))
-
-        updated_booking = cursor.fetchone()
-
-        return {
-            "message": "Cập nhật booking thành công",
-            "booking": updated_booking
-        }
-
+        return {"message": "Cập nhật Booking thành công", "booking": updated}
     except HTTPException:
         db.rollback()
         raise
-
-    except Error as e:
+    except Error as exc:
         db.rollback()
-
-        raise HTTPException(
-            status_code=409,
-            detail=str(e)
-        )
-
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         cursor.close()
 
 
-# ==================================================
-# DELETE: HỦY BOOKING
-# Không xóa bản ghi trực tiếp
-# Sử dụng stored procedure sp_huy_booking
-# ==================================================
+def run_booking_status_procedure(booking_id: int, procedure_name: str, success_message: str, db):
+    """Gọi procedure chuyển trạng thái; procedure tự quản lý transaction."""
+    cursor = db.cursor(dictionary=True)
+    try:
+        cursor.callproc(procedure_name, [booking_id])
+        read_procedure_rows(cursor)
+        cursor.execute(booking_select_sql("WHERE b.id = %s"), (booking_id,))
+        booking = cursor.fetchone()
+        if booking is None:
+            raise HTTPException(status_code=404, detail="Không tìm thấy Booking sau khi cập nhật.")
+        return {"message": success_message, "id": booking_id,
+                "booking": booking, "trang_thai": booking["trang_thai"]}
+    except HTTPException:
+        raise
+    except Error as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    finally:
+        cursor.close()
+
+
+@router.post("/{booking_id}/confirm")
+def confirm_booking(booking_id: int, db=Depends(get_db)):
+    return run_booking_status_procedure(booking_id, "sp_xac_nhan_booking", "Xác nhận Booking thành công", db)
+
+
+@router.post("/{booking_id}/check-in")
+def check_in_booking(booking_id: int, db=Depends(get_db)):
+    return run_booking_status_procedure(booking_id, "sp_nhan_phong", "Nhận phòng thành công", db)
+
+
+@router.post("/{booking_id}/check-out")
+def check_out_booking(booking_id: int, db=Depends(get_db)):
+    return run_booking_status_procedure(booking_id, "sp_tra_phong", "Trả phòng thành công", db)
+
 
 @router.delete("/{booking_id}")
-def cancel_booking(
-    booking_id: int,
-    db=Depends(get_db)
-):
+def cancel_booking(booking_id: int, db=Depends(get_db)):
     cursor = db.cursor(dictionary=True)
-
     try:
-        # Kiểm tra booking tồn tại
-        cursor.execute("""
-            SELECT id
-            FROM booking
-            WHERE id = %s
-        """, (booking_id,))
-
+        cursor.execute("SELECT id FROM booking WHERE id = %s", (booking_id,))
         if cursor.fetchone() is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy booking."
-            )
+            raise HTTPException(status_code=404, detail="Không tìm thấy Booking.")
 
-        # Gọi procedure hủy booking
-        cursor.callproc(
-            "sp_huy_booking",
-            [booking_id]
+        # sp_huy_booking cũng tự quản lý transaction ở phía MySQL.
+        cursor.callproc("sp_huy_booking", [booking_id])
+        read_procedure_rows(cursor)
+
+        cursor.execute(
+            "SELECT id, trang_thai FROM booking WHERE id = %s",
+            (booking_id,),
         )
-
-        close_procedure_results(cursor)
-
-        db.commit()
-
-        # Lấy trạng thái sau khi hủy
-        cursor.execute("""
-            SELECT
-                id,
-                trang_thai
-            FROM booking
-            WHERE id = %s
-        """, (booking_id,))
-
-        cancelled_booking = cursor.fetchone()
-
+        cancelled = cursor.fetchone()
         return {
-            "message": "Hủy booking thành công",
+            "message": "Hủy Booking thành công",
             "id": booking_id,
-            "booking": cancelled_booking
+            "booking": cancelled,
         }
-
     except HTTPException:
-        db.rollback()
         raise
-
-    except Error as e:
-        db.rollback()
-
-        raise HTTPException(
-            status_code=409,
-            detail=str(e)
-        )
-
+    except Error as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     finally:
         cursor.close()

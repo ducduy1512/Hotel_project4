@@ -1,433 +1,444 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from datetime import timedelta
+import json
 from decimal import Decimal
-from datetime import datetime
-from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from mysql.connector import Error
 
 from api.database import get_db
-
-
-router = APIRouter(
-    prefix="/api/payments",
-    tags=["Payments"]
-)
-
-
-# =====================================================
-# CONSTANTS
-# =====================================================
-
-PAYMENT_METHODS = [
-    "TIEN_MAT",
-    "CHUYEN_KHOAN",
-    "THE"
-]
-
-PAYMENT_STATUSES = [
-    "CHO_THANH_TOAN",
-    "THANH_CONG",
-    "THAT_BAI",
-    "HOAN_TIEN"
-]
-
-
-# =====================================================
-# SCHEMAS
-# =====================================================
 from api.schemas import PaymentCreate, PaymentUpdate
 
+router = APIRouter(prefix="/api/payments", tags=["Payments"])
 
-# =====================================================
-# HELPER FUNCTIONS
-# =====================================================
+PAYMENT_METHODS = {"TIEN_MAT", "CHUYEN_KHOAN", "THE"}
+PAYMENT_STATUSES = {"CHO_THANH_TOAN", "THANH_CONG", "THAT_BAI", "HOAN_TIEN"}
+CENT = Decimal("0.01")
+
+
+def money(value) -> Decimal:
+    return Decimal(str(value or 0)).quantize(CENT)
+
 
 def get_payment_by_id(cursor, payment_id: int):
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT
-            p.id,
-            p.booking_id,
-            p.ngay_thanh_toan,
-            p.so_tien,
-            p.method,
-            p.status,
+            py.id,
+            py.booking_id,
+            py.khach_id,
+            py.ngay_thanh_toan,
+            py.so_tien,
+            py.method,
+            py.status,
+            py.tien_phong_ap_dung,
+            py.ap_dung_mua_cao_diem,
+            py.chi_tiet_mua_cao_diem,
+            b.tien_phong_du_kien,
+            b.ap_dung_mua_cao_diem AS booking_ap_dung_mua_cao_diem,
             b.phong_id,
-            b.khach_id,
+            p.so_phong,
             b.ngay_nhan,
             b.ngay_tra,
             b.trang_thai AS booking_trang_thai
-        FROM pay p
-        LEFT JOIN booking b
-            ON p.booking_id = b.id
-        WHERE p.id = %s
-    """, (payment_id,))
-
-    return cursor.fetchone()
-
-
-def check_booking_exists(cursor, booking_id: int):
-    cursor.execute("""
-        SELECT id
-        FROM booking
-        WHERE id = %s
-    """, (booking_id,))
-
-    if cursor.fetchone() is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Booking không tồn tại."
-        )
+        FROM pay py
+        JOIN booking b ON b.id = py.booking_id
+        JOIN phong p ON p.id = b.phong_id
+        WHERE py.id = %s
+        """,
+        (payment_id,),
+    )
+    row = cursor.fetchone()
+    if row and isinstance(row.get("chi_tiet_mua_cao_diem"), str):
+        try:
+            row["chi_tiet_mua_cao_diem"] = json.loads(row["chi_tiet_mua_cao_diem"])
+        except ValueError:
+            pass
+    return row
 
 
-def validate_payment_method(method: str):
+def calculate_booking_totals(cursor, booking_id: int):
+    """Tính tiền theo đúng quy tắc của Database: từng đêm + dịch vụ Booking."""
+    cursor.execute(
+        """
+        SELECT
+            b.id,
+            b.phong_id,
+            b.ngay_nhan,
+            b.ngay_tra,
+            b.trang_thai,
+            b.tien_phong_du_kien,
+            b.ap_dung_mua_cao_diem,
+            b.chi_tiet_mua_cao_diem
+        FROM booking b
+        WHERE b.id = %s
+        """,
+        (booking_id,),
+    )
+    booking = cursor.fetchone()
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking không tồn tại.")
+    if booking["trang_thai"] == "DA_HUY":
+        raise HTTPException(status_code=409, detail="Booking đã hủy, không thể thanh toán.")
+
+    room_total = money(booking["tien_phong_du_kien"])
+
+    cursor.execute(
+        """
+        SELECT COALESCE(SUM(don_gia * so_luong), 0) AS tien_dich_vu
+        FROM dichvu
+        WHERE booking_id = %s
+        """,
+        (booking_id,),
+    )
+    service_row = cursor.fetchone()
+    service_total = money(service_row["tien_dich_vu"] if service_row else 0)
+
+    peak_detail = booking.get("chi_tiet_mua_cao_diem")
+    if isinstance(peak_detail, str):
+        try:
+            peak_detail = json.loads(peak_detail)
+        except ValueError:
+            pass
+    return {
+        "tien_phong": room_total.quantize(CENT),
+        "ap_dung_mua_cao_diem": bool(booking.get("ap_dung_mua_cao_diem")),
+        "chi_tiet_mua_cao_diem": peak_detail,
+        "tien_dich_vu": service_total,
+        "tong_tien": (room_total + service_total).quantize(CENT),
+    }
+
+
+def validate_payment_method(method: str) -> None:
     if method not in PAYMENT_METHODS:
         raise HTTPException(
             status_code=422,
-            detail=(
-                "Phương thức thanh toán không hợp lệ. "
-                f"Các giá trị được chấp nhận: {PAYMENT_METHODS}"
-            )
+            detail=f"Phương thức thanh toán hợp lệ: {sorted(PAYMENT_METHODS)}",
         )
 
 
-def validate_payment_status(status: str):
+def validate_payment_status(status: str) -> None:
     if status not in PAYMENT_STATUSES:
         raise HTTPException(
             status_code=422,
-            detail=(
-                "Trạng thái thanh toán không hợp lệ. "
-                f"Các giá trị được chấp nhận: {PAYMENT_STATUSES}"
-            )
+            detail=f"Trạng thái thanh toán hợp lệ: {sorted(PAYMENT_STATUSES)}",
         )
 
-
-# =====================================================
-# GET ALL PAYMENTS
-# =====================================================
 
 @router.get("/")
 def get_payments(db=Depends(get_db)):
     cursor = db.cursor(dictionary=True)
-
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT
-                p.id,
-                p.booking_id,
-                p.ngay_thanh_toan,
-                p.so_tien,
-                p.method,
-                p.status,
+                py.id,
+                py.booking_id,
+                py.khach_id,
+                py.ngay_thanh_toan,
+                py.so_tien,
+                py.method,
+                py.status,
+                py.tien_phong_ap_dung,
+                py.ap_dung_mua_cao_diem,
+                py.chi_tiet_mua_cao_diem,
+                b.tien_phong_du_kien,
+                b.ap_dung_mua_cao_diem AS booking_ap_dung_mua_cao_diem,
                 b.phong_id,
-                b.khach_id,
+                p.so_phong,
                 b.ngay_nhan,
                 b.ngay_tra,
                 b.trang_thai AS booking_trang_thai
-            FROM pay p
-            LEFT JOIN booking b
-                ON p.booking_id = b.id
-            ORDER BY p.id DESC
-        """)
-
+            FROM pay py
+            JOIN booking b ON b.id = py.booking_id
+            JOIN phong p ON p.id = b.phong_id
+            ORDER BY py.id DESC
+            """
+        )
         payments = cursor.fetchall()
-
-        return {
-            "message": "Lấy danh sách thanh toán thành công",
-            "total": len(payments),
-            "payments": payments
-        }
-
+        for payment in payments:
+            if isinstance(payment.get("chi_tiet_mua_cao_diem"), str):
+                try:
+                    payment["chi_tiet_mua_cao_diem"] = json.loads(payment["chi_tiet_mua_cao_diem"])
+                except ValueError:
+                    pass
+        return {"message": "Lấy danh sách thanh toán thành công", "total": len(payments), "payments": payments}
+    except Error as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         cursor.close()
 
 
-# =====================================================
-# GET PAYMENT BY ID
-# =====================================================
+@router.get("/webhook-events")
+def get_payment_webhook_events(
+    limit: int = Query(default=100, ge=1, le=500),
+    db=Depends(get_db),
+):
+    """ADMIN audit view for SePay callbacks, including unmatched/amount-mismatch transfers."""
+    cursor = db.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """SELECT id, transaction_id, gateway, account_number, payment_code,
+                      transfer_type, transfer_amount, reference_code, transaction_date,
+                      pay_id, processing_result, received_at, processed_at
+               FROM sepay_webhook_events
+               ORDER BY id DESC LIMIT %s""",
+            (limit,),
+        )
+        rows = cursor.fetchall()
+        return {"total": len(rows), "events": rows}
+    except Error as exc:
+        raise HTTPException(status_code=500, detail=f"Không đọc được nhật ký webhook: {exc}") from exc
+    finally:
+        cursor.close()
 
-@router.get("/{payment_id}")
+
+@router.get("/{payment_id:int}")
 def get_payment(payment_id: int, db=Depends(get_db)):
     cursor = db.cursor(dictionary=True)
-
     try:
-        payment = get_payment_by_id(
-            cursor,
-            payment_id
-        )
-
+        payment = get_payment_by_id(cursor, payment_id)
         if payment is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy thanh toán."
-            )
-
-        return {
-            "message": "Lấy thông tin thanh toán thành công",
-            "payment": payment
-        }
-
+            raise HTTPException(status_code=404, detail="Không tìm thấy thanh toán.")
+        return {"message": "Lấy thông tin thanh toán thành công", "payment": payment}
+    except HTTPException:
+        raise
+    except Error as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         cursor.close()
 
-
-# =====================================================
-# CREATE PAYMENT
-# =====================================================
 
 @router.post("/", status_code=201)
-def create_payment(
-    data: PaymentCreate,
-    db=Depends(get_db)
-):
-    cursor = db.cursor(dictionary=True)
-
-    try:
-        # Kiểm tra booking
-        check_booking_exists(
-            cursor,
-            data.booking_id
-        )
-
-        # Kiểm tra phương thức và trạng thái
-        validate_payment_method(data.method)
-        validate_payment_status(data.status)
-
-        # Không tạo thanh toán thành công trực tiếp
-        if data.status == "THANH_CONG":
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Không tạo thanh toán với trạng thái "
-                    "THANH_CONG. Hãy tạo thanh toán ở trạng thái "
-                    "CHO_THANH_TOAN, đảm bảo hóa đơn đã được lập "
-                    "và đúng số tiền, sau đó dùng PUT để xác nhận."
-                )
-            )
-
-        cursor.execute("""
-            INSERT INTO pay (
-                booking_id,
-                ngay_thanh_toan,
-                so_tien,
-                method,
-                status
-            )
-            VALUES (%s, %s, %s, %s, %s)
-        """, (
-            data.booking_id,
-            data.ngay_thanh_toan,
-            data.so_tien,
-            data.method,
-            data.status
-        ))
-
-        new_id = cursor.lastrowid
-
-        db.commit()
-
-        payment = get_payment_by_id(
-            cursor,
-            new_id
-        )
-
-        return {
-            "message": "Tạo thanh toán thành công",
-            "id": new_id,
-            "payment": payment
-        }
-
-    except HTTPException:
-        db.rollback()
-        raise
-
-    except Exception as e:
-        db.rollback()
-
+def create_payment(data: PaymentCreate, db=Depends(get_db)):
+    validate_payment_method(data.method)
+    validate_payment_status(data.status)
+    if data.status != "CHO_THANH_TOAN":
         raise HTTPException(
-            status_code=400,
-            detail=f"Lỗi khi tạo thanh toán: {str(e)}"
+            status_code=422,
+            detail="Giao dịch mới phải ở trạng thái CHO_THANH_TOAN. Hãy xác nhận sau khi đã có hóa đơn.",
         )
 
-    finally:
-        cursor.close()
-
-
-# =====================================================
-# UPDATE PAYMENT
-# =====================================================
-
-@router.put("/{payment_id}")
-def update_payment(
-    payment_id: int,
-    data: PaymentUpdate,
-    db=Depends(get_db)
-):
     cursor = db.cursor(dictionary=True)
-
     try:
-        existing = get_payment_by_id(
-            cursor,
-            payment_id
+        db.start_transaction()
+        cursor.execute(
+            "SELECT id, khach_id, trang_thai FROM booking WHERE id = %s FOR UPDATE",
+            (data.booking_id,),
         )
+        booking = cursor.fetchone()
+        if booking is None:
+            raise HTTPException(status_code=404, detail="Booking không tồn tại.")
+        if booking["trang_thai"] == "DA_HUY":
+            raise HTTPException(status_code=409, detail="Booking đã hủy, không thể tạo thanh toán.")
 
-        if existing is None:
+        totals = calculate_booking_totals(cursor, data.booking_id)
+        supplied_amount = money(data.so_tien)
+        if supplied_amount != totals["tong_tien"]:
             raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy thanh toán."
-            )
-
-        update_data = data.model_dump(
-            exclude_unset=True
-        )
-
-        if not update_data:
-            raise HTTPException(
-                status_code=400,
+                status_code=422,
                 detail=(
-                    "Không có thông tin nào được gửi "
-                    "để cập nhật."
-                )
+                    f"Số tiền nhập không khớp tổng tiền Database. "
+                    f"Số tiền đúng: {totals['tong_tien']} VNĐ."
+                ),
             )
-
-        # Kiểm tra các trường được cập nhật
-        if (
-            "method" in update_data
-            and update_data["method"] is not None
-        ):
-            validate_payment_method(
-                update_data["method"]
-            )
-
-        if (
-            "status" in update_data
-            and update_data["status"] is not None
-        ):
-            validate_payment_status(
-                update_data["status"]
-            )
-
-        allowed_fields = [
-            "ngay_thanh_toan",
-            "so_tien",
-            "method",
-            "status"
-        ]
-
-        fields = [
-            field
-            for field in update_data
-            if field in allowed_fields
-        ]
-
-        if not fields:
-            raise HTTPException(
-                status_code=400,
-                detail="Không có trường hợp lệ để cập nhật."
-            )
-
-        set_clause = ", ".join(
-            f"{field} = %s"
-            for field in fields
-        )
-
-        values = [
-            update_data[field]
-            for field in fields
-        ]
-
-        values.append(payment_id)
 
         cursor.execute(
-            f"""
-            UPDATE pay
-            SET {set_clause}
-            WHERE id = %s
+            """
+            SELECT id, status
+            FROM pay
+            WHERE booking_id = %s
+              AND status IN ('CHO_THANH_TOAN', 'THANH_CONG')
+            FOR UPDATE
             """,
-            tuple(values)
+            (data.booking_id,),
         )
+        active_payment = cursor.fetchone()
+        if active_payment:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Booking đã có giao dịch đang hoạt động (Pay ID {active_payment['id']}). "
+                    "Không tạo thêm giao dịch trùng."
+                ),
+            )
 
+        cursor.execute(
+            """
+            INSERT INTO pay (
+                booking_id, khach_id, ngay_thanh_toan,
+                so_tien, method, status
+            )
+            VALUES (%s, %s, %s, %s, %s, 'CHO_THANH_TOAN')
+            """,
+            (
+                data.booking_id,
+                booking["khach_id"],
+                data.ngay_thanh_toan,
+                supplied_amount,
+                data.method,
+            ),
+        )
+        new_id = cursor.lastrowid
         db.commit()
 
-        updated_payment = get_payment_by_id(
-            cursor,
-            payment_id
-        )
-
+        payment = get_payment_by_id(cursor, new_id)
         return {
-            "message": "Cập nhật thanh toán thành công",
-            "payment": updated_payment
+            "message": "Tạo giao dịch chờ thanh toán thành công",
+            "id": new_id,
+            "payment": payment,
+            "calculation": totals,
         }
-
     except HTTPException:
         db.rollback()
         raise
-
-    except Exception as e:
+    except Error as exc:
         db.rollback()
-
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Không thể cập nhật thanh toán. "
-                "Có thể trigger từ chối do hóa đơn chưa tồn tại, "
-                "số tiền không khớp hoặc dữ liệu vi phạm ràng buộc. "
-                f"Chi tiết: {str(e)}"
-            )
-        )
-
+        raise HTTPException(status_code=409, detail=f"MySQL từ chối tạo thanh toán: {exc}") from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         cursor.close()
 
 
-# =====================================================
-# DELETE PAYMENT
-# =====================================================
-
-@router.delete("/{payment_id}")
-def delete_payment(
-    payment_id: int,
-    db=Depends(get_db)
-):
+@router.put("/{payment_id:int}")
+def update_payment(payment_id: int, data: PaymentUpdate, db=Depends(get_db)):
     cursor = db.cursor(dictionary=True)
-
     try:
-        existing = get_payment_by_id(
-            cursor,
-            payment_id
+        db.start_transaction()
+        cursor.execute(
+            """
+            SELECT id, booking_id, khach_id, ngay_thanh_toan,
+                   so_tien, method, status
+            FROM pay
+            WHERE id = %s
+            FOR UPDATE
+            """,
+            (payment_id,),
         )
-
+        existing = cursor.fetchone()
         if existing is None:
+            raise HTTPException(status_code=404, detail="Không tìm thấy thanh toán.")
+
+        update_data = data.model_dump(exclude_unset=True)
+        if not update_data:
+            raise HTTPException(status_code=400, detail="Không có dữ liệu cập nhật.")
+
+        # GUI hiện tại gửi lại số tiền/phương thức và tự đặt ngày = thời điểm hiện tại
+        # khi bấm Cập nhật. Chỉ chấp nhận các giá trị tiền/phương thức không đổi;
+        # không ghi đè ngày, số tiền hoặc phương thức đã lưu.
+        if "so_tien" in update_data and update_data["so_tien"] is not None:
+            if money(update_data["so_tien"]) != money(existing["so_tien"]):
+                raise HTTPException(status_code=409, detail="Không được sửa số tiền của giao dịch đã tạo.")
+        if "method" in update_data and update_data["method"] is not None:
+            validate_payment_method(update_data["method"])
+            if update_data["method"] != existing["method"]:
+                raise HTTPException(status_code=409, detail="Không được sửa phương thức của giao dịch đã tạo.")
+
+        new_status = update_data.get("status")
+        if not new_status:
             raise HTTPException(
-                status_code=404,
-                detail="Không tìm thấy thanh toán."
+                status_code=422,
+                detail="Chỉ cập nhật trạng thái thanh toán. Vui lòng chọn trạng thái mới.",
+            )
+        validate_payment_status(new_status)
+
+        old_status = existing["status"]
+        allowed_transitions = {
+            "CHO_THANH_TOAN": {"THANH_CONG", "THAT_BAI"},
+            "THAT_BAI": {"CHO_THANH_TOAN"},
+            "THANH_CONG": {"HOAN_TIEN"},
+            "HOAN_TIEN": set(),
+        }
+        if new_status != old_status and new_status not in allowed_transitions[old_status]:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Không thể chuyển trạng thái từ {old_status} sang {new_status}.",
             )
 
-        cursor.execute("""
-            DELETE FROM pay
-            WHERE id = %s
-        """, (payment_id,))
+        if new_status == "THANH_CONG" and old_status != "THANH_CONG":
+            cursor.execute(
+                "SELECT id, tong_tien FROM hoadon WHERE pay_id = %s",
+                (payment_id,),
+            )
+            invoice = cursor.fetchone()
+            if invoice is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Chưa có hóa đơn cho giao dịch. Hãy tạo hóa đơn trước khi xác nhận thanh toán.",
+                )
+            if money(invoice["tong_tien"]) != money(existing["so_tien"]):
+                raise HTTPException(status_code=409, detail="Số tiền thanh toán không khớp hóa đơn.")
+            cursor.execute(
+                "SELECT trang_thai FROM booking WHERE id = %s",
+                (existing["booking_id"],),
+            )
+            booking_row = cursor.fetchone()
+            if booking_row is None or booking_row["trang_thai"] == "DA_HUY":
+                raise HTTPException(status_code=409, detail="Không thể thanh toán Booking đã hủy.")
+
+        if new_status != old_status:
+            cursor.execute(
+                "UPDATE pay SET status = %s WHERE id = %s",
+                (new_status, payment_id),
+            )
 
         db.commit()
-
+        updated = get_payment_by_id(cursor, payment_id)
         return {
-            "message": "Xóa thanh toán thành công",
-            "id": payment_id
+            "message": "Cập nhật trạng thái thanh toán thành công",
+            "payment": updated,
         }
-
     except HTTPException:
         db.rollback()
         raise
-
-    except Exception as e:
+    except Error as exc:
         db.rollback()
+        raise HTTPException(status_code=409, detail=f"Database từ chối cập nhật: {exc}") from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        cursor.close()
 
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Không thể xóa thanh toán. "
-                "Có thể thanh toán đang được liên kết với hóa đơn. "
-                f"Chi tiết: {str(e)}"
-            )
+
+@router.delete("/{payment_id:int}")
+def delete_payment(payment_id: int, db=Depends(get_db)):
+    cursor = db.cursor(dictionary=True)
+    try:
+        db.start_transaction()
+        cursor.execute(
+            "SELECT id, status FROM pay WHERE id = %s FOR UPDATE",
+            (payment_id,),
         )
+        payment = cursor.fetchone()
+        if payment is None:
+            raise HTTPException(status_code=404, detail="Không tìm thấy thanh toán.")
 
+        if payment["status"] != "THAT_BAI":
+            raise HTTPException(
+                status_code=409,
+                detail="Chỉ được xóa giao dịch THAT_BAI. Giao dịch chờ, thành công hoặc hoàn tiền phải giữ lịch sử.",
+            )
+
+        cursor.execute("SELECT id FROM hoadon WHERE pay_id = %s", (payment_id,))
+        if cursor.fetchone() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Giao dịch đã có hóa đơn; không được xóa lịch sử thanh toán.",
+            )
+
+        cursor.execute("DELETE FROM pay WHERE id = %s", (payment_id,))
+        db.commit()
+        return {"message": "Đã xóa giao dịch thất bại chưa lập hóa đơn", "id": payment_id}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Error as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"Không thể xóa thanh toán: {exc}") from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         cursor.close()
