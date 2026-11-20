@@ -7,6 +7,10 @@ from mysql.connector import Error
 
 from api.database import get_db
 from api.schemas import PaymentCreate, PaymentUpdate
+from api.peak_season_display import (
+    enrich_peak_season_record,
+    enrich_peak_season_records,
+)
 
 router = APIRouter(prefix="/api/payments", tags=["Payments"])
 
@@ -31,6 +35,7 @@ def get_payment_by_id(cursor, payment_id: int):
             py.method,
             py.status,
             py.tien_phong_ap_dung,
+            py.tien_phu_phi_mua_cao_diem,
             py.ap_dung_mua_cao_diem,
             py.chi_tiet_mua_cao_diem,
             b.tien_phong_du_kien,
@@ -53,7 +58,7 @@ def get_payment_by_id(cursor, payment_id: int):
             row["chi_tiet_mua_cao_diem"] = json.loads(row["chi_tiet_mua_cao_diem"])
         except ValueError:
             pass
-    return row
+    return enrich_peak_season_record(row)
 
 
 def calculate_booking_totals(cursor, booking_id: int):
@@ -67,6 +72,7 @@ def calculate_booking_totals(cursor, booking_id: int):
             b.ngay_tra,
             b.trang_thai,
             b.tien_phong_du_kien,
+            b.tien_phu_phi_mua_cao_diem,
             b.ap_dung_mua_cao_diem,
             b.chi_tiet_mua_cao_diem
         FROM booking b
@@ -81,6 +87,7 @@ def calculate_booking_totals(cursor, booking_id: int):
         raise HTTPException(status_code=409, detail="Booking đã hủy, không thể thanh toán.")
 
     room_total = money(booking["tien_phong_du_kien"])
+    peak_surcharge = money(booking.get("tien_phu_phi_mua_cao_diem", 0))
 
     cursor.execute(
         """
@@ -101,10 +108,11 @@ def calculate_booking_totals(cursor, booking_id: int):
             pass
     return {
         "tien_phong": room_total.quantize(CENT),
+        "tien_phu_phi_mua_cao_diem": peak_surcharge.quantize(CENT),
         "ap_dung_mua_cao_diem": bool(booking.get("ap_dung_mua_cao_diem")),
         "chi_tiet_mua_cao_diem": peak_detail,
         "tien_dich_vu": service_total,
-        "tong_tien": (room_total + service_total).quantize(CENT),
+        "tong_tien": (room_total + peak_surcharge + service_total).quantize(CENT),
     }
 
 
@@ -139,6 +147,7 @@ def get_payments(db=Depends(get_db)):
                 py.method,
                 py.status,
                 py.tien_phong_ap_dung,
+                py.tien_phu_phi_mua_cao_diem,
                 py.ap_dung_mua_cao_diem,
                 py.chi_tiet_mua_cao_diem,
                 b.tien_phong_du_kien,
@@ -155,12 +164,7 @@ def get_payments(db=Depends(get_db)):
             """
         )
         payments = cursor.fetchall()
-        for payment in payments:
-            if isinstance(payment.get("chi_tiet_mua_cao_diem"), str):
-                try:
-                    payment["chi_tiet_mua_cao_diem"] = json.loads(payment["chi_tiet_mua_cao_diem"])
-                except ValueError:
-                    pass
+        enrich_peak_season_records(payments)
         return {"message": "Lấy danh sách thanh toán thành công", "total": len(payments), "payments": payments}
     except Error as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

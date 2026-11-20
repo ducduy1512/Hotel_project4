@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # =========================================================
@@ -138,18 +138,40 @@ class InvoiceCreate(BaseModel):
 # PEAK SEASON
 # =========================================================
 
+PEAK_SEASON_RATES = {0.6, 0.5, 0.4, 0.3, 0.2, 0.1}
+
+
+def validate_peak_surcharge_rate(value: float) -> float:
+    from decimal import Decimal
+    allowed = {Decimal("0.6"), Decimal("0.5"), Decimal("0.4"),
+               Decimal("0.3"), Decimal("0.2"), Decimal("0.1")}
+    if Decimal(str(value)) not in allowed:
+        raise ValueError("Hệ số phụ thu phải là một trong các mức 0.6, 0.5, 0.4, 0.3, 0.2 hoặc 0.1.")
+    return float(value)
+
+
 class PeakSeasonCreate(BaseModel):
     phong_id: int = Field(gt=0)
     tu_ngay: date
     den_ngay: date
-    he_so_gia: float = Field(gt=0)
+    he_so_gia: float
+
+    @field_validator("he_so_gia")
+    @classmethod
+    def validate_rate(cls, value):
+        return validate_peak_surcharge_rate(value)
 
 
 class PeakSeasonUpdate(BaseModel):
     phong_id: int = Field(gt=0)
     tu_ngay: date
     den_ngay: date
-    he_so_gia: float = Field(gt=0)
+    he_so_gia: float
+
+    @field_validator("he_so_gia")
+    @classmethod
+    def validate_rate(cls, value):
+        return validate_peak_surcharge_rate(value)
 
 
 # =========================================================

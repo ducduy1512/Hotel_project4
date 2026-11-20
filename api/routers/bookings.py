@@ -6,6 +6,7 @@ from mysql.connector import Error
 
 from api.database import get_db
 from api.schemas import BookingUpdate
+from api.peak_season_display import enrich_peak_season_record, enrich_peak_season_records
 
 
 class BookingCreateRequest(BaseModel):
@@ -52,6 +53,7 @@ def booking_select_sql(where_clause: str = "") -> str:
             b.ngay_tra,
             b.trang_thai,
             b.tien_phong_du_kien,
+            b.tien_phu_phi_mua_cao_diem,
             b.ap_dung_mua_cao_diem,
             b.chi_tiet_mua_cao_diem
         FROM booking b
@@ -66,7 +68,9 @@ def get_bookings(db=Depends(get_db)):
     cursor = db.cursor(dictionary=True)
     try:
         cursor.execute(booking_select_sql("ORDER BY b.id DESC"))
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+        enrich_peak_season_records(rows)
+        return rows
     except Error as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
@@ -135,6 +139,7 @@ def get_booking(booking_id: int, db=Depends(get_db)):
             (booking_id,),
         )
         booking["dich_vu"] = cursor.fetchall()
+        enrich_peak_season_record(booking)
         return booking
     except HTTPException:
         raise

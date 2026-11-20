@@ -33,6 +33,7 @@ class CustomerPaymentRequest(BaseModel):
 
 
 def _room_price_preview(cursor, room_id: int, ngay_nhan: date, ngay_tra: date):
+    """Quote the base room rate and the peak-season surcharge separately."""
     cursor.execute(
         """SELECT lp.gia_co_ban FROM phong p
            JOIN loaiphong lp ON lp.id = p.loai_phong_id WHERE p.id = %s""",
@@ -41,10 +42,13 @@ def _room_price_preview(cursor, room_id: int, ngay_nhan: date, ngay_tra: date):
     room = cursor.fetchone()
     if room is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy phòng.")
-    base_rate = Decimal(str(room["gia_co_ban"]))
+
+    cent = Decimal("0.01")
+    base_rate = Decimal(str(room["gia_co_ban"])).quantize(cent, rounding=ROUND_HALF_UP)
     day = ngay_nhan
     nightly = []
     room_total = Decimal("0.00")
+    surcharge_total = Decimal("0.00")
     has_peak = False
     while day < ngay_tra:
         cursor.execute(
@@ -54,22 +58,25 @@ def _room_price_preview(cursor, room_id: int, ngay_nhan: date, ngay_tra: date):
             (room_id, day),
         )
         season = cursor.fetchone()
-        factor = season["he_so_gia"] if season else 1
+        factor = Decimal(str(season["he_so_gia"])) if season else Decimal("0.00")
         season_id = season["id"] if season else None
         if season:
             has_peak = True
-        nightly_amount = (base_rate * Decimal(str(factor))).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
-        room_total += nightly_amount
+        nightly_room = base_rate
+        nightly_surcharge = (base_rate * factor).quantize(cent, rounding=ROUND_HALF_UP)
+        room_total += nightly_room
+        surcharge_total += nightly_surcharge
         nightly.append({
             "ngay": day.isoformat(),
             "mua_cao_diem_id": season_id,
             "he_so_gia": float(factor),
             "gia_co_ban": float(base_rate),
-            "tien_dem": float(nightly_amount),
+            "tien_dem": float(nightly_room),
+            "phi_mua_cao_diem": float(nightly_surcharge),
         })
         day += timedelta(days=1)
+
+    total_before_services = (room_total + surcharge_total).quantize(cent, rounding=ROUND_HALF_UP)
     return {
         "phong_id": room_id,
         "ngay_nhan": ngay_nhan,
@@ -77,6 +84,8 @@ def _room_price_preview(cursor, room_id: int, ngay_nhan: date, ngay_tra: date):
         "so_dem": len(nightly),
         "gia_co_ban": float(base_rate),
         "tien_phong_du_kien": float(room_total),
+        "tien_phu_phi_mua_cao_diem": float(surcharge_total),
+        "tong_tien_phong_va_phu_phi": float(total_before_services),
         "ap_dung_mua_cao_diem": has_peak,
         "chi_tiet_mua_cao_diem": nightly,
     }
@@ -92,30 +101,34 @@ def _decode_json_field(value):
 
 
 def _calculate_peak_season_surcharge(snapshot, applied) -> Decimal:
-    """Return only the extra amount caused by peak-season multipliers.
-
-    The calculation uses the immutable JSON snapshot stored on the Pay row,
-    not today's muacaodiem table, so historical prices do not change when an
-    administrator edits a peak-season period later.
-    """
+    """Calculate the additive fee from the immutable snapshot (legacy-safe)."""
     if not applied:
         return Decimal("0.00")
-
     nights = _decode_json_field(snapshot)
     if not isinstance(nights, list):
         return Decimal("0.00")
 
     surcharge = Decimal("0.00")
     for night in nights:
-        if not isinstance(night, dict) or night.get("mua_cao_diem_id") is None:
+        if not isinstance(night, dict):
             continue
         try:
             base_rate = Decimal(str(night.get("gia_co_ban") or 0))
-            charged_rate = Decimal(str(night.get("tien_dem") or 0))
+            explicit_fee = night.get("phi_mua_cao_diem")
+            if explicit_fee is not None:
+                nightly_fee = Decimal(str(explicit_fee))
+            else:
+                factor = Decimal(str(night.get("he_so_gia") or 0))
+                if factor > Decimal("1.00"):
+                    old_applied = Decimal(str(night.get("tien_dem") or (base_rate * factor)))
+                    nightly_fee = max(old_applied - base_rate, Decimal("0.00"))
+                elif night.get("mua_cao_diem_id") is not None:
+                    nightly_fee = base_rate * factor
+                else:
+                    nightly_fee = Decimal("0.00")
+            surcharge += nightly_fee
         except Exception:
             continue
-        surcharge += max(charged_rate - base_rate, Decimal("0.00"))
-
     return surcharge.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
@@ -168,6 +181,8 @@ def available_rooms(
             preview = _room_price_preview(cursor, room_id, ngay_nhan, ngay_tra)
             room.update({
                 "tien_phong_du_kien": preview["tien_phong_du_kien"],
+                "tien_phu_phi_mua_cao_diem": preview["tien_phu_phi_mua_cao_diem"],
+                "tong_tien_phong_va_phu_phi": preview["tong_tien_phong_va_phu_phi"],
                 "ap_dung_mua_cao_diem": preview["ap_dung_mua_cao_diem"],
                 "chi_tiet_mua_cao_diem": preview["chi_tiet_mua_cao_diem"],
             })
@@ -282,7 +297,8 @@ def create_customer_booking(
         )
         chosen = cursor.fetchall()
         cursor.execute(
-            """SELECT tien_phong_du_kien, ap_dung_mua_cao_diem, chi_tiet_mua_cao_diem
+            """SELECT tien_phong_du_kien, tien_phu_phi_mua_cao_diem,
+                      ap_dung_mua_cao_diem, chi_tiet_mua_cao_diem
                FROM booking WHERE id=%s""", (booking_id,)
         )
         season_snapshot = cursor.fetchone() or {}
@@ -292,6 +308,8 @@ def create_customer_booking(
             "message": "Đặt phòng thành công. Giá mùa cao điểm đã được chốt theo ngày đặt.",
             "booking_id": booking_id,
             "tien_phong_du_kien": season_snapshot.get("tien_phong_du_kien"),
+            "tien_phu_phi_mua_cao_diem": season_snapshot.get("tien_phu_phi_mua_cao_diem"),
+            "tong_tien_phong_va_phu_phi": float(Decimal(str(season_snapshot.get("tien_phong_du_kien") or 0)) + Decimal(str(season_snapshot.get("tien_phu_phi_mua_cao_diem") or 0))),
             "ap_dung_mua_cao_diem": bool(season_snapshot.get("ap_dung_mua_cao_diem")),
             "chi_tiet_mua_cao_diem": season_snapshot.get("chi_tiet_mua_cao_diem"),
             "dich_vu": chosen,
@@ -314,7 +332,7 @@ def my_bookings(current_user=Depends(require_customer), db=Depends(get_db)):
         cursor.execute(
             """SELECT b.id AS booking_id, b.phong_id, p.so_phong, lp.ten AS loai_phong,
                       b.ngay_nhan, b.ngay_tra, DATEDIFF(b.ngay_tra,b.ngay_nhan) AS so_dem,
-                      b.trang_thai, b.tien_phong_du_kien,
+                      b.trang_thai, b.tien_phong_du_kien, b.tien_phu_phi_mua_cao_diem,
                       b.ap_dung_mua_cao_diem, b.chi_tiet_mua_cao_diem,
                       (SELECT COUNT(*) FROM dichvu d WHERE d.booking_id=b.id) AS so_dich_vu,
                       (SELECT COALESCE(SUM(py.so_tien),0) FROM pay py WHERE py.booking_id=b.id AND py.status='THANH_CONG') AS da_thanh_toan
@@ -344,8 +362,8 @@ def my_booking_detail(booking_id: int, current_user=Depends(require_customer), d
             """SELECT b.id AS booking_id, b.trang_thai, b.ngay_nhan, b.ngay_tra,
                       p.id AS phong_id, p.so_phong, lp.ten AS loai_phong,
                       lp.gia_co_ban, DATEDIFF(b.ngay_tra,b.ngay_nhan) AS so_dem,
-                      b.tien_phong_du_kien, b.ap_dung_mua_cao_diem,
-                      b.chi_tiet_mua_cao_diem
+                      b.tien_phong_du_kien, b.tien_phu_phi_mua_cao_diem,
+                      b.ap_dung_mua_cao_diem, b.chi_tiet_mua_cao_diem
                FROM booking b JOIN phong p ON p.id=b.phong_id
                JOIN loaiphong lp ON lp.id=p.loai_phong_id
                WHERE b.id=%s AND b.khach_id=%s""",
@@ -360,9 +378,10 @@ def my_booking_detail(booking_id: int, current_user=Depends(require_customer), d
         detail["dich_vu"] = cursor.fetchall()
         cursor.execute(
             """SELECT py.id AS pay_id, py.so_tien, py.method, py.status,
-                      py.tien_phong_ap_dung, py.ap_dung_mua_cao_diem,
-                      py.chi_tiet_mua_cao_diem,
-                      py.ngay_thanh_toan, h.id AS hoa_don_id, h.tong_tien, h.ngay_lap
+                      py.tien_phong_ap_dung, py.tien_phu_phi_mua_cao_diem,
+                      py.ap_dung_mua_cao_diem, py.chi_tiet_mua_cao_diem,
+                      py.ngay_thanh_toan, h.id AS hoa_don_id, h.tien_phu_phi_mua_cao_diem AS hoa_don_phu_phi,
+                      h.tong_tien, h.ngay_lap
                FROM pay py LEFT JOIN hoadon h ON h.pay_id=py.id
                WHERE py.booking_id=%s ORDER BY py.id DESC""",
             (booking_id,),
@@ -401,8 +420,8 @@ def my_invoices(current_user=Depends(require_customer), db=Depends(get_db)):
     cursor = db.cursor(dictionary=True)
     try:
         cursor.execute(
-            """SELECT h.id AS hoa_don_id, h.pay_id, h.tien_phong, h.tien_dich_vu,
-                      h.tong_tien, h.ngay_lap, py.booking_id, py.so_tien,
+            """SELECT h.id AS hoa_don_id, h.pay_id, h.tien_phong, h.tien_phu_phi_mua_cao_diem,
+                      h.tien_dich_vu, h.tong_tien, h.ngay_lap, py.booking_id, py.so_tien,
                       py.tien_phong_ap_dung, py.ap_dung_mua_cao_diem,
                       py.chi_tiet_mua_cao_diem,
                       py.method, py.status AS trang_thai_thanh_toan, py.ngay_thanh_toan,
@@ -444,8 +463,8 @@ def request_booking_payment(
         # Nếu đã có hóa đơn cho lần thanh toán đang chờ/thành công, không tạo trùng.
         cursor.execute(
             """SELECT h.id AS hoa_don_id, py.id AS pay_id, py.status, py.method,
-                      h.tien_phong, h.tien_dich_vu, h.tong_tien, h.ngay_lap,
-                      py.tien_phong_ap_dung, py.ap_dung_mua_cao_diem,
+                      h.tien_phong, h.tien_phu_phi_mua_cao_diem, h.tien_dich_vu, h.tong_tien, h.ngay_lap,
+                      py.tien_phong_ap_dung, py.tien_phu_phi_mua_cao_diem, py.ap_dung_mua_cao_diem,
                       py.chi_tiet_mua_cao_diem
                FROM pay py LEFT JOIN hoadon h ON h.pay_id=py.id
                WHERE py.booking_id=%s AND py.status IN ('CHO_THANH_TOAN','THANH_CONG')
@@ -483,10 +502,10 @@ def request_booking_payment(
         if not pay_id:
             raise HTTPException(status_code=500, detail="Không lấy được mã giao dịch vừa tạo.")
         cursor.execute(
-            """SELECT h.id AS hoa_don_id, h.pay_id, h.tien_phong, h.tien_dich_vu,
-                      h.tong_tien, h.ngay_lap, py.status, py.method,
-                      py.tien_phong_ap_dung, py.ap_dung_mua_cao_diem,
-                      py.chi_tiet_mua_cao_diem
+            """SELECT h.id AS hoa_don_id, h.pay_id, h.tien_phong, h.tien_phu_phi_mua_cao_diem,
+                      h.tien_dich_vu, h.tong_tien, h.ngay_lap, py.status, py.method,
+                      py.tien_phong_ap_dung, py.tien_phu_phi_mua_cao_diem,
+                      py.ap_dung_mua_cao_diem, py.chi_tiet_mua_cao_diem
                FROM hoadon h JOIN pay py ON py.id=h.pay_id WHERE py.id=%s""",
             (pay_id,),
         )
@@ -528,7 +547,7 @@ def get_customer_payment_qr(
         cursor.execute(
             """SELECT py.id, py.booking_id, py.so_tien, py.method, py.status,
                       py.ap_dung_mua_cao_diem, py.chi_tiet_mua_cao_diem,
-                      py.tien_phong_ap_dung,
+                      py.tien_phong_ap_dung, py.tien_phu_phi_mua_cao_diem,
                       h.tong_tien, b.trang_thai AS booking_status
                FROM pay py
                JOIN booking b ON b.id=py.booking_id
@@ -550,9 +569,14 @@ def get_customer_payment_qr(
         amount = Decimal(str(payment["so_tien"])).quantize(Decimal("0.01"))
         invoice_amount = Decimal(str(payment["tong_tien"])).quantize(Decimal("0.01"))
         peak_season_applied = bool(payment.get("ap_dung_mua_cao_diem"))
-        peak_season_amount = _calculate_peak_season_surcharge(
+        snapshot_fee = _calculate_peak_season_surcharge(
             payment.get("chi_tiet_mua_cao_diem"), peak_season_applied
         )
+        peak_season_amount = Decimal(str(
+            payment.get("tien_phu_phi_mua_cao_diem")
+            if payment.get("tien_phu_phi_mua_cao_diem") is not None
+            else snapshot_fee
+        )).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if amount != invoice_amount:
             raise HTTPException(status_code=409, detail="Số tiền Pay không khớp hóa đơn; không thể tạo QR.")
         if amount <= 0:
@@ -591,6 +615,8 @@ def get_customer_payment_qr(
             "amount": int(amount),
             "peak_season_applied": peak_season_applied,
             "peak_season_amount": float(peak_season_amount),
+            "room_amount": float(payment.get("tien_phong_ap_dung") or 0),
+            "service_amount": float(Decimal(str(payment.get("so_tien") or 0)) - Decimal(str(payment.get("tien_phong_ap_dung") or 0)) - peak_season_amount),
             "peak_season_label": "CÓ" if peak_season_applied else "KHÔNG",
             "bank_code": config["bank_code"],
             "account_number": config["account_number"],

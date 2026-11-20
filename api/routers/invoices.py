@@ -7,6 +7,10 @@ from mysql.connector import Error
 from api.database import get_db
 from api.routers.payments import calculate_booking_totals, money
 from api.schemas import InvoiceCreate
+from api.peak_season_display import (
+    enrich_peak_season_record,
+    enrich_peak_season_records,
+)
 
 router = APIRouter(prefix="/api/invoices", tags=["Invoices"])
 PAYMENT_METHODS = {"TIEN_MAT", "CHUYEN_KHOAN", "THE"}
@@ -29,6 +33,7 @@ def get_invoice_by_id(cursor, invoice_id: int):
             h.id,
             h.pay_id,
             h.tien_phong,
+            h.tien_phu_phi_mua_cao_diem,
             h.tien_dich_vu,
             h.tong_tien,
             h.ngay_lap,
@@ -37,6 +42,7 @@ def get_invoice_by_id(cursor, invoice_id: int):
             py.ngay_thanh_toan,
             py.so_tien,
             py.tien_phong_ap_dung,
+            py.tien_phu_phi_mua_cao_diem,
             py.ap_dung_mua_cao_diem,
             py.chi_tiet_mua_cao_diem,
             py.method,
@@ -63,7 +69,7 @@ def get_invoice_by_id(cursor, invoice_id: int):
             row["chi_tiet_mua_cao_diem"] = json.loads(row["chi_tiet_mua_cao_diem"])
         except ValueError:
             pass
-    return row
+    return enrich_peak_season_record(row)
 
 
 def invoice_response(cursor, invoice_id: int, message: str):
@@ -77,6 +83,7 @@ def invoice_response(cursor, invoice_id: int, message: str):
         "invoice": invoice,
         "calculation": {
             "tien_phong": invoice["tien_phong"],
+            "tien_phu_phi_mua_cao_diem": invoice["tien_phu_phi_mua_cao_diem"],
             "tien_dich_vu": invoice["tien_dich_vu"],
             "tong_tien": invoice["tong_tien"],
         },
@@ -95,6 +102,7 @@ def get_invoices(db=Depends(get_db)):
                 h.id,
                 h.pay_id,
                 h.tien_phong,
+                h.tien_phu_phi_mua_cao_diem,
                 h.tien_dich_vu,
                 h.tong_tien,
                 h.ngay_lap,
@@ -103,6 +111,7 @@ def get_invoices(db=Depends(get_db)):
                 py.ngay_thanh_toan,
                 py.so_tien,
                 py.tien_phong_ap_dung,
+                py.tien_phu_phi_mua_cao_diem,
                 py.ap_dung_mua_cao_diem,
                 py.chi_tiet_mua_cao_diem,
                 py.method,
@@ -123,12 +132,7 @@ def get_invoices(db=Depends(get_db)):
             """
         )
         invoices = cursor.fetchall()
-        for invoice in invoices:
-            if isinstance(invoice.get("chi_tiet_mua_cao_diem"), str):
-                try:
-                    invoice["chi_tiet_mua_cao_diem"] = json.loads(invoice["chi_tiet_mua_cao_diem"])
-                except ValueError:
-                    pass
+        enrich_peak_season_records(invoices)
         return {"message": "Lấy danh sách hóa đơn thành công", "total": len(invoices), "invoices": invoices}
     except Error as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -303,13 +307,15 @@ def create_invoice(data: InvoiceCreate, db=Depends(get_db)):
             cursor.execute(
                 """
                 INSERT INTO hoadon (
-                    pay_id, tien_phong, tien_dich_vu, tong_tien
+                    pay_id, tien_phong, tien_phu_phi_mua_cao_diem,
+                    tien_dich_vu, tong_tien
                 )
-                VALUES (%s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
                 (
                     pending["id"],
                     totals["tien_phong"],
+                    totals["tien_phu_phi_mua_cao_diem"],
                     totals["tien_dich_vu"],
                     totals["tong_tien"],
                 ),
