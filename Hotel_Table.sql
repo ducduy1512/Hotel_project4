@@ -37,11 +37,11 @@
 --   1. loaiphong  (id, ten, gia_co_ban, suc_chua)
 --   2. phong      (id, so_phong, loai_phong_id, trang_thai)
 --   3. khach      (id, ho_ten, cccd, sdt)
---   4. booking    (id, phong_id, khach_id, ngay_nhan, ngay_tra, trang_thai)
+--   4. booking    (base room snapshot + independent peak-season surcharge)
 --   5. dichvu     (id, ten, don_gia, so_luong, phong_id, booking_id)
 --   6. muacaodiem (id, phong_id, tu_ngay, den_ngay, he_so_gia)
 --   7. pay        (id, booking_id, khach_id, ngay_thanh_toan, so_tien, method, status)
---   8. hoadon     (id, pay_id, tien_phong, tien_dich_vu, tong_tien, ngay_lap)
+--   8. hoadon     (id, pay_id, tien_phong, tien_phu_phi_mua_cao_diem, tien_dich_vu, tong_tien, ngay_lap)
 -- Includes:
 --   - Full DDL (Tables, Primary Keys, Unique Keys, Foreign Keys, Check Constraints)
 --   - Complete, mathematically consistent sample dataset (all statuses covered)
@@ -110,6 +110,7 @@ CREATE TABLE `booking` (
   `ngay_tra` DATE NOT NULL,
   `trang_thai` VARCHAR(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CHO_XAC_NHAN',
   `tien_phong_du_kien` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `tien_phu_phi_mua_cao_diem` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   `ap_dung_mua_cao_diem` TINYINT(1) NOT NULL DEFAULT 0,
   `chi_tiet_mua_cao_diem` JSON DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -155,7 +156,7 @@ CREATE TABLE `muacaodiem` (
   PRIMARY KEY (`id`),
   KEY `fk_muacaodiem_phong` (`phong_id`),
   CONSTRAINT `fk_muacaodiem_phong` FOREIGN KEY (`phong_id`) REFERENCES `phong` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT `chk_he_so_gia` CHECK (`he_so_gia` > 0),
+  CONSTRAINT `chk_he_so_gia` CHECK (`he_so_gia` IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60)),
   CONSTRAINT `chk_ngay_caodiem` CHECK (`den_ngay` >= `tu_ngay`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -171,6 +172,7 @@ CREATE TABLE `pay` (
   `method` VARCHAR(30) COLLATE utf8mb4_unicode_ci NOT NULL,
   `status` VARCHAR(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CHO_THANH_TOAN',
   `tien_phong_ap_dung` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `tien_phu_phi_mua_cao_diem` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   `ap_dung_mua_cao_diem` TINYINT(1) NOT NULL DEFAULT 0,
   `chi_tiet_mua_cao_diem` JSON DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -190,6 +192,7 @@ CREATE TABLE `hoadon` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `pay_id` INT NOT NULL,
   `tien_phong` DECIMAL(12,2) NOT NULL,
+  `tien_phu_phi_mua_cao_diem` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   `tien_dich_vu` DECIMAL(12,2) NOT NULL,
   `tong_tien` DECIMAL(12,2) NOT NULL,
   `ngay_lap` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -198,9 +201,10 @@ CREATE TABLE `hoadon` (
   CONSTRAINT `fk_hoadon_pay` FOREIGN KEY (`pay_id`) REFERENCES `pay` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `chk_hoadon_tien` CHECK (
     `tien_phong` >= 0
+    AND `tien_phu_phi_mua_cao_diem` >= 0
     AND `tien_dich_vu` >= 0
     AND `tong_tien` >= 0
-    AND `tong_tien` = (`tien_phong` + `tien_dich_vu`)
+    AND `tong_tien` = (`tien_phong` + `tien_phu_phi_mua_cao_diem` + `tien_dich_vu`)
   )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

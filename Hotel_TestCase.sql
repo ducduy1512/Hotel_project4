@@ -87,16 +87,57 @@ FROM pay py JOIN booking b ON b.id = py.booking_id
 WHERE py.khach_id <> b.khach_id;
 
 SELECT 'INVOICE_TOTAL_MISMATCH' AS test_case, COUNT(*) AS invalid_count
-FROM hoadon h WHERE h.tong_tien <> h.tien_phong + h.tien_dich_vu;
+FROM hoadon h
+WHERE h.tong_tien <> h.tien_phong + h.tien_phu_phi_mua_cao_diem + h.tien_dich_vu;
 
 SELECT 'BOOKING_PEAK_PRICE_SNAPSHOT_MISSING' AS test_case, COUNT(*) AS invalid_count
 FROM booking
 WHERE chi_tiet_mua_cao_diem IS NULL
    OR JSON_TYPE(chi_tiet_mua_cao_diem) <> 'ARRAY';
 
+SELECT 'PEAK_SEASON_RATE_INVALID' AS test_case, COUNT(*) AS invalid_count
+FROM muacaodiem
+WHERE he_so_gia NOT IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60);
+
+SELECT 'BOOKING_ROOM_BASE_SNAPSHOT_MISMATCH' AS test_case, COUNT(*) AS invalid_count
+FROM booking b
+WHERE b.tien_phong_du_kien <> COALESCE((
+    SELECT SUM(jt.gia_co_ban)
+    FROM JSON_TABLE(
+        b.chi_tiet_mua_cao_diem,
+        '$[*]' COLUMNS (gia_co_ban DECIMAL(12,2) PATH '$.gia_co_ban')
+    ) AS jt
+), 0.00);
+
+SELECT 'BOOKING_PEAK_FEE_SNAPSHOT_MISMATCH' AS test_case, COUNT(*) AS invalid_count
+FROM booking b
+WHERE b.tien_phu_phi_mua_cao_diem <> COALESCE((
+    SELECT SUM(jt.phi_mua_cao_diem)
+    FROM JSON_TABLE(
+        b.chi_tiet_mua_cao_diem,
+        '$[*]' COLUMNS (phi_mua_cao_diem DECIMAL(12,2) PATH '$.phi_mua_cao_diem')
+    ) AS jt
+), 0.00);
+
+SELECT 'PAY_BOOKING_SNAPSHOT_MISMATCH' AS test_case, COUNT(*) AS invalid_count
+FROM pay py
+JOIN booking b ON b.id = py.booking_id
+WHERE py.tien_phong_ap_dung <> b.tien_phong_du_kien
+   OR py.tien_phu_phi_mua_cao_diem <> b.tien_phu_phi_mua_cao_diem
+   OR py.ap_dung_mua_cao_diem <> b.ap_dung_mua_cao_diem
+   OR NOT (py.chi_tiet_mua_cao_diem <=> b.chi_tiet_mua_cao_diem);
+
 SELECT 'PAY_INVOICE_ROOM_SNAPSHOT_MISMATCH' AS test_case, COUNT(*) AS invalid_count
 FROM pay py JOIN hoadon h ON h.pay_id = py.id
 WHERE py.tien_phong_ap_dung <> h.tien_phong;
+
+SELECT 'PAY_INVOICE_PEAK_FEE_MISMATCH' AS test_case, COUNT(*) AS invalid_count
+FROM pay py JOIN hoadon h ON h.pay_id = py.id
+WHERE py.tien_phu_phi_mua_cao_diem <> h.tien_phu_phi_mua_cao_diem;
+
+SELECT 'PAY_AMOUNT_INVOICE_TOTAL_MISMATCH' AS test_case, COUNT(*) AS invalid_count
+FROM pay py JOIN hoadon h ON h.pay_id = py.id
+WHERE py.so_tien <> h.tong_tien;
 
 SELECT 'PAY_SEASON_SNAPSHOT_MISSING' AS test_case, COUNT(*) AS invalid_count
 FROM pay

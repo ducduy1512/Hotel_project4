@@ -50,6 +50,8 @@ SELECT b.id AS booking_id,
        p.so_phong,
        lp.ten AS loai_phong,
        lp.gia_co_ban,
+       b.tien_phong_du_kien,
+       b.tien_phu_phi_mua_cao_diem,
        COALESCE((
            SELECT SUM(d.don_gia * d.so_luong)
            FROM dichvu d WHERE d.booking_id = b.id
@@ -124,6 +126,7 @@ CREATE OR REPLACE VIEW `v_chi_tiet_hoa_don` AS
 SELECT hd.id AS hoadon_id,
        hd.ngay_lap,
        hd.tien_phong,
+       hd.tien_phu_phi_mua_cao_diem,
        hd.tien_dich_vu,
        hd.tong_tien,
        py.id AS pay_id,
@@ -210,7 +213,7 @@ SELECT m.id AS mua_cao_diem_id,
        DATEDIFF(m.den_ngay, m.tu_ngay) + 1 AS so_ngay_ap_dung,
        m.he_so_gia,
        lp.gia_co_ban,
-       ROUND(lp.gia_co_ban * m.he_so_gia, 2) AS gia_mot_dem_mua_cao_diem
+       ROUND(lp.gia_co_ban * m.he_so_gia, 2) AS phu_phi_mua_cao_diem_moi_dem
 FROM muacaodiem m
 JOIN phong p ON p.id = m.phong_id
 JOIN loaiphong lp ON lp.id = p.loai_phong_id;

@@ -29,7 +29,7 @@
 --   5. dichvu     (id, ten, don_gia, so_luong, phong_id, booking_id)
 --   6. muacaodiem (id, phong_id, tu_ngay, den_ngay, he_so_gia)
 --   7. pay        (id, booking_id, khach_id, ngay_thanh_toan, so_tien, method, status)
---   8. hoadon     (id, pay_id, tien_phong, tien_dich_vu, tong_tien, ngay_lap)
+--   8. hoadon     (id, pay_id, tien_phong, tien_phu_phi_mua_cao_diem, tien_dich_vu, tong_tien, ngay_lap)
 -- Includes:
 --   - Full DDL (Tables, Primary Keys, Unique Keys, Foreign Keys, Check Constraints)
 --   - Complete, mathematically consistent sample dataset (all statuses covered)
@@ -98,6 +98,7 @@ CREATE TABLE `booking` (
   `ngay_tra` DATE NOT NULL,
   `trang_thai` VARCHAR(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CHO_XAC_NHAN',
   `tien_phong_du_kien` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `tien_phu_phi_mua_cao_diem` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   `ap_dung_mua_cao_diem` TINYINT(1) NOT NULL DEFAULT 0,
   `chi_tiet_mua_cao_diem` JSON DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -143,7 +144,7 @@ CREATE TABLE `muacaodiem` (
   PRIMARY KEY (`id`),
   KEY `fk_muacaodiem_phong` (`phong_id`),
   CONSTRAINT `fk_muacaodiem_phong` FOREIGN KEY (`phong_id`) REFERENCES `phong` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT `chk_he_so_gia` CHECK (`he_so_gia` > 0),
+  CONSTRAINT `chk_he_so_gia` CHECK (`he_so_gia` IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60)),
   CONSTRAINT `chk_ngay_caodiem` CHECK (`den_ngay` >= `tu_ngay`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -159,6 +160,7 @@ CREATE TABLE `pay` (
   `method` VARCHAR(30) COLLATE utf8mb4_unicode_ci NOT NULL,
   `status` VARCHAR(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CHO_THANH_TOAN',
   `tien_phong_ap_dung` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `tien_phu_phi_mua_cao_diem` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   `ap_dung_mua_cao_diem` TINYINT(1) NOT NULL DEFAULT 0,
   `chi_tiet_mua_cao_diem` JSON DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -172,12 +174,13 @@ CREATE TABLE `pay` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
--- 1.8 Table: hoadon (HoaDon: id, tienPhong, tienDichVu, tongTien)
+-- 1.8 Table: hoadon (HoaDon: tien phong + phu phi mua cao diem + tien dich vu)
 -- Relationship: Pay (1) -- [Xuat hoa don] -- (1) HoaDon
 CREATE TABLE `hoadon` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `pay_id` INT NOT NULL,
   `tien_phong` DECIMAL(12,2) NOT NULL,
+  `tien_phu_phi_mua_cao_diem` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   `tien_dich_vu` DECIMAL(12,2) NOT NULL,
   `tong_tien` DECIMAL(12,2) NOT NULL,
   `ngay_lap` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -186,9 +189,10 @@ CREATE TABLE `hoadon` (
   CONSTRAINT `fk_hoadon_pay` FOREIGN KEY (`pay_id`) REFERENCES `pay` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `chk_hoadon_tien` CHECK (
     `tien_phong` >= 0
+    AND `tien_phu_phi_mua_cao_diem` >= 0
     AND `tien_dich_vu` >= 0
     AND `tong_tien` >= 0
-    AND `tong_tien` = (`tien_phong` + `tien_dich_vu`)
+    AND `tong_tien` = (`tien_phong` + `tien_phu_phi_mua_cao_diem` + `tien_dich_vu`)
   )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -309,10 +313,10 @@ INSERT INTO `khach` (`id`, `ho_ten`, `cccd`, `sdt`) VALUES
 
 -- 2.4 muacaodiem (Peak season rules per room)
 INSERT INTO `muacaodiem` (`id`, `phong_id`, `tu_ngay`, `den_ngay`, `he_so_gia`) VALUES
-(1, 1, '2026-12-20', '2026-12-31', 1.20),
-(2, 3, '2026-12-20', '2026-12-31', 1.30),
-(3, 5, '2026-12-20', '2026-12-31', 1.50),
-(4, 7, '2026-12-20', '2026-12-31', 1.60);
+(1, 1, '2026-12-20', '2026-12-31', 0.20),
+(2, 3, '2026-12-20', '2026-12-31', 0.30),
+(3, 5, '2026-12-20', '2026-12-31', 0.50),
+(4, 7, '2026-12-20', '2026-12-31', 0.60);
 
 -- 2.5 booking (17 bookings covering all 5 statuses: CHO_XAC_NHAN, DA_XAC_NHAN, DANG_O, DA_HUY, HOAN_THANH)
 INSERT INTO `booking` (`id`, `phong_id`, `khach_id`, `ngay_nhan`, `ngay_tra`, `trang_thai`) VALUES
@@ -322,12 +326,12 @@ INSERT INTO `booking` (`id`, `phong_id`, `khach_id`, `ngay_nhan`, `ngay_tra`, `t
 (4,  4,  4,  '2026-12-11', '2026-12-13', 'DA_XAC_NHAN'),
 (5,  5,  5,  '2026-12-14', '2026-12-16', 'DA_XAC_NHAN'),
 (6,  6,  6,  '2026-12-17', '2026-12-20', 'DA_XAC_NHAN'),
-(7,  7,  7,  '2026-12-21', '2026-12-24', 'DA_XAC_NHAN'), -- Ap dung mua cao diem he so 1.60
+(7,  7,  7,  '2026-12-21', '2026-12-24', 'DA_XAC_NHAN'), -- Ap dung phu thu mua cao diem 0.60
 (8,  8,  8,  '2026-12-25', '2026-12-27', 'DA_XAC_NHAN'),
 (9,  9,  9,  '2026-12-28', '2026-12-30', 'DA_XAC_NHAN'),
 (10, 10, 10, '2026-12-05', '2026-12-07', 'DA_HUY'),
 (11, 2,  3,  '2026-12-10', '2026-12-12', 'DA_HUY'),
-(12, 1,  1,  '2026-12-20', '2026-12-23', 'DA_XAC_NHAN'), -- Ap dung mua cao diem he so 1.20
+(12, 1,  1,  '2026-12-20', '2026-12-23', 'DA_XAC_NHAN'), -- Ap dung phu thu mua cao diem 0.20
 (13, 4,  1,  '2026-12-20', '2026-12-28', 'DA_HUY'),
 (14, 11, 2,  '2026-12-15', '2026-12-17', 'DA_XAC_NHAN'),
 (15, 8,  5,  '2026-11-15', '2026-11-18', 'DANG_O'),      -- Khach dang o phong 402
@@ -426,10 +430,10 @@ INSERT INTO `hoadon` (`id`, `pay_id`, `tien_phong`, `tien_dich_vu`, `tong_tien`,
 (4,  4,  1600000.00, 160000.00, 1760000.00, '2026-11-11 11:55:00'),
 (5,  5,  2400000.00, 550000.00, 2950000.00, '2026-11-12 12:55:00'),
 (6,  6,  3600000.00, 150000.00, 3750000.00, '2026-11-12 13:55:00'),
-(7,  7,  7200000.00, 200000.00, 7400000.00, '2026-11-13 14:55:00'), -- 3 dem Family (1.5tr) * 1.60 = 7.2tr + 200k DV
+(7,  7,  7200000.00, 200000.00, 7400000.00, '2026-11-13 14:55:00'), -- Sau backfill: 4.5tr tien phong + 2.7tr phu phi + 200k DV
 (8,  8,  3000000.00, 100000.00, 3100000.00, '2026-11-13 15:55:00'),
 (9,  9,  1600000.00,  80000.00, 1680000.00, '2026-11-14 16:55:00'),
-(10, 12, 1800000.00,      0.00, 1800000.00, '2026-11-15 09:25:00'), -- 3 dem Standard (500k) * 1.20 = 1.8tr + 0 DV
+(10, 12, 1800000.00,      0.00, 1800000.00, '2026-11-15 09:25:00'), -- Sau backfill: 1.5tr tien phong + 300k phu phi + 0 DV
 (11, 13, 1000000.00, 160000.00, 1160000.00, '2026-11-15 10:10:00'),
 (12, 14, 1600000.00, 100000.00, 1700000.00, '2026-11-12 11:55:00'),
 (13, 11, 1000000.00,  180000.00, 1180000.00, '2026-11-09 07:55:00'); -- Pay 11: giao dich hoan tien cua Booking 1
@@ -898,10 +902,9 @@ BEGIN
     DECLARE v_dem INT DEFAULT 0;
     DECLARE v_khach_id INT;
     DECLARE v_tien_phong DECIMAL(12,2) DEFAULT 0;
+    DECLARE v_phu_phi_mua_cao_diem DECIMAL(12,2) DEFAULT 0;
     DECLARE v_tien_dich_vu DECIMAL(12,2) DEFAULT 0;
     DECLARE v_tong_tien DECIMAL(12,2) DEFAULT 0;
-    DECLARE v_ngay_nhan DATE;
-    DECLARE v_ngay_tra DATE;
     DECLARE v_pay_id INT;
     DECLARE v_booking_status VARCHAR(30);
     DECLARE v_not_found BOOLEAN DEFAULT FALSE;
@@ -914,65 +917,47 @@ BEGIN
     END;
 
     START TRANSACTION;
-
-    SELECT b.khach_id, b.ngay_nhan, b.ngay_tra, b.trang_thai, b.tien_phong_du_kien
-    INTO v_khach_id, v_ngay_nhan, v_ngay_tra, v_booking_status, v_tien_phong
-    FROM booking b
-    WHERE b.id = p_booking_id
-    FOR UPDATE;
+    SELECT b.khach_id, b.trang_thai, b.tien_phong_du_kien,
+           b.tien_phu_phi_mua_cao_diem
+    INTO v_khach_id, v_booking_status, v_tien_phong, v_phu_phi_mua_cao_diem
+    FROM booking b WHERE b.id = p_booking_id FOR UPDATE;
 
     IF v_not_found THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Booking khong ton tai';
     END IF;
-
     IF v_booking_status = 'DA_HUY' THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Khong the lap hoa don cho booking da huy';
     END IF;
-
     IF p_method IS NULL OR p_method NOT IN ('TIEN_MAT', 'CHUYEN_KHOAN', 'THE') THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Phuong thuc thanh toan khong hop le';
     END IF;
 
-    SELECT COUNT(*) INTO v_dem
-    FROM pay
-    WHERE booking_id = p_booking_id
-      AND status IN ('CHO_THANH_TOAN', 'THANH_CONG');
-
+    SELECT COUNT(*) INTO v_dem FROM pay
+    WHERE booking_id = p_booking_id AND status IN ('CHO_THANH_TOAN', 'THANH_CONG');
     IF v_dem > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Booking da co giao dich dang cho hoac thanh toan thanh cong';
     END IF;
 
-    -- Room amount is the immutable price snapshot captured when Booking was created.
-
-    -- Tính tổng tiền dịch vụ đã dùng của booking
     SELECT COALESCE(SUM(don_gia * so_luong), 0)
-    INTO v_tien_dich_vu
-    FROM dichvu
-    WHERE booking_id = p_booking_id;
+    INTO v_tien_dich_vu FROM dichvu WHERE booking_id = p_booking_id;
 
-    SET v_tong_tien = v_tien_phong + v_tien_dich_vu;
+    SET v_tong_tien = v_tien_phong + v_phu_phi_mua_cao_diem + v_tien_dich_vu;
 
     INSERT INTO pay (booking_id, khach_id, so_tien, ngay_thanh_toan, method, status)
     VALUES (p_booking_id, v_khach_id, v_tong_tien, NOW(), p_method, 'CHO_THANH_TOAN');
-
     SET v_pay_id = LAST_INSERT_ID();
 
-    INSERT INTO hoadon (pay_id, tien_phong, tien_dich_vu, tong_tien)
-    VALUES (v_pay_id, v_tien_phong, v_tien_dich_vu, v_tong_tien);
+    INSERT INTO hoadon (pay_id, tien_phong, tien_phu_phi_mua_cao_diem, tien_dich_vu, tong_tien)
+    VALUES (v_pay_id, v_tien_phong, v_phu_phi_mua_cao_diem, v_tien_dich_vu, v_tong_tien);
 
     COMMIT;
-
-    SELECT p_booking_id AS booking_id,
-           v_khach_id AS khach_id,
-           v_pay_id AS pay_id,
+    SELECT p_booking_id AS booking_id, v_khach_id AS khach_id, v_pay_id AS pay_id,
            v_tien_phong AS tien_phong,
-           v_tien_dich_vu AS tien_dich_vu,
-           v_tong_tien AS tong_tien,
-           p_method AS phuong_thuc,
-           'CHO_THANH_TOAN' AS trang_thai_thanh_toan;
+           v_phu_phi_mua_cao_diem AS tien_phu_phi_mua_cao_diem,
+           v_tien_dich_vu AS tien_dich_vu, v_tong_tien AS tong_tien,
+           p_method AS phuong_thuc, 'CHO_THANH_TOAN' AS trang_thai_thanh_toan;
 END$$
 DELIMITER ;
-
 
 -- 3.8 Lịch sử đặt phòng theo khách hàng
 DROP PROCEDURE IF EXISTS `sp_lich_su_booking`;
@@ -1350,7 +1335,7 @@ END$$
 DELIMITER ;
 
 
--- Backfill the immutable seasonal price snapshot for the seed Booking/Pay rows.
+-- Backfill immutable nightly room and peak-surcharge snapshots for seed rows.
 DELIMITER $$
 DROP PROCEDURE IF EXISTS `sp_backfill_peak_price_snapshots`$$
 CREATE PROCEDURE `sp_backfill_peak_price_snapshots`()
@@ -1362,9 +1347,10 @@ BEGIN
     DECLARE v_end DATE;
     DECLARE v_rate DECIMAL(12,2);
     DECLARE v_day DATE;
-    DECLARE v_factor DECIMAL(6,2);
+    DECLARE v_factor DECIMAL(4,2);
     DECLARE v_season_id INT;
-    DECLARE v_total DECIMAL(12,2);
+    DECLARE v_room_total DECIMAL(12,2);
+    DECLARE v_peak_fee DECIMAL(12,2);
     DECLARE v_flag TINYINT(1);
     DECLARE v_detail JSON;
     DECLARE booking_cursor CURSOR FOR
@@ -1378,21 +1364,25 @@ BEGIN
         SELECT lp.gia_co_ban INTO v_rate
         FROM phong p JOIN loaiphong lp ON lp.id=p.loai_phong_id
         WHERE p.id=v_room_id;
-        SET v_day=v_start; SET v_total=0.00; SET v_flag=0; SET v_detail=JSON_ARRAY();
+        SET v_day=v_start; SET v_room_total=0.00; SET v_peak_fee=0.00;
+        SET v_flag=0; SET v_detail=JSON_ARRAY();
         WHILE v_day < v_end DO
-            SET v_season_id=NULL; SET v_factor=1.00;
-            SELECT MAX(id), COALESCE(MAX(he_so_gia),1.00)
+            SET v_season_id=NULL; SET v_factor=0.00;
+            SELECT MAX(id), COALESCE(MAX(he_so_gia),0.00)
             INTO v_season_id, v_factor
             FROM muacaodiem
             WHERE phong_id=v_room_id AND v_day BETWEEN tu_ngay AND den_ngay;
             IF v_season_id IS NOT NULL THEN SET v_flag=1; END IF;
-            SET v_total=v_total+ROUND(v_rate*v_factor,2);
+            SET v_room_total=v_room_total+v_rate;
+            SET v_peak_fee=v_peak_fee+ROUND(v_rate*v_factor,2);
             SET v_detail=JSON_ARRAY_APPEND(v_detail,'$',JSON_OBJECT(
                 'ngay',DATE_FORMAT(v_day,'%Y-%m-%d'),'mua_cao_diem_id',v_season_id,
-                'he_so_gia',v_factor,'gia_co_ban',v_rate,'tien_dem',ROUND(v_rate*v_factor,2)));
+                'he_so_gia',v_factor,'gia_co_ban',v_rate,'tien_dem',v_rate,
+                'phi_mua_cao_diem',ROUND(v_rate*v_factor,2)));
             SET v_day=DATE_ADD(v_day,INTERVAL 1 DAY);
         END WHILE;
-        UPDATE booking SET tien_phong_du_kien=v_total,
+        UPDATE booking SET tien_phong_du_kien=v_room_total,
+            tien_phu_phi_mua_cao_diem=v_peak_fee,
             ap_dung_mua_cao_diem=v_flag, chi_tiet_mua_cao_diem=v_detail
         WHERE id=v_booking_id;
     END LOOP;
@@ -1400,10 +1390,15 @@ BEGIN
 
     UPDATE pay py
     JOIN booking b ON b.id=py.booking_id
-    LEFT JOIN hoadon h ON h.pay_id=py.id
-    SET py.tien_phong_ap_dung=COALESCE(h.tien_phong,b.tien_phong_du_kien),
+    SET py.tien_phong_ap_dung=b.tien_phong_du_kien,
+        py.tien_phu_phi_mua_cao_diem=b.tien_phu_phi_mua_cao_diem,
         py.ap_dung_mua_cao_diem=b.ap_dung_mua_cao_diem,
         py.chi_tiet_mua_cao_diem=b.chi_tiet_mua_cao_diem;
+
+    UPDATE hoadon h
+    JOIN pay py ON py.id=h.pay_id
+    SET h.tien_phong=py.tien_phong_ap_dung,
+        h.tien_phu_phi_mua_cao_diem=py.tien_phu_phi_mua_cao_diem;
 END$$
 DELIMITER ;
 CALL `sp_backfill_peak_price_snapshots`();
@@ -1429,9 +1424,10 @@ BEGIN
     DECLARE v_dem INT DEFAULT 0;
     DECLARE v_gia_co_ban DECIMAL(12,2) DEFAULT 0.00;
     DECLARE v_ngay DATE;
-    DECLARE v_he_so DECIMAL(6,2) DEFAULT 1.00;
+    DECLARE v_he_so DECIMAL(4,2) DEFAULT 0.00;
     DECLARE v_mua_id INT DEFAULT NULL;
     DECLARE v_tien_phong DECIMAL(12,2) DEFAULT 0.00;
+    DECLARE v_phu_phi_mua_cao_diem DECIMAL(12,2) DEFAULT 0.00;
     DECLARE v_co_mua_cao_diem TINYINT(1) DEFAULT 0;
     DECLARE v_chi_tiet JSON;
 
@@ -1484,25 +1480,28 @@ BEGIN
     SET v_chi_tiet = JSON_ARRAY();
     WHILE v_ngay < NEW.ngay_tra DO
         SET v_mua_id = NULL;
-        SET v_he_so = 1.00;
-        SELECT MAX(m.id), COALESCE(MAX(m.he_so_gia), 1.00)
+        SET v_he_so = 0.00;
+        SELECT MAX(m.id), COALESCE(MAX(m.he_so_gia), 0.00)
         INTO v_mua_id, v_he_so
         FROM muacaodiem m
         WHERE m.phong_id = NEW.phong_id
           AND v_ngay BETWEEN m.tu_ngay AND m.den_ngay;
         IF v_mua_id IS NOT NULL THEN SET v_co_mua_cao_diem = 1; END IF;
-        SET v_tien_phong = v_tien_phong + ROUND(v_gia_co_ban * v_he_so, 2);
+        SET v_tien_phong = v_tien_phong + v_gia_co_ban;
+        SET v_phu_phi_mua_cao_diem = v_phu_phi_mua_cao_diem + ROUND(v_gia_co_ban * v_he_so, 2);
         SET v_chi_tiet = JSON_ARRAY_APPEND(
             v_chi_tiet, '$',
             JSON_OBJECT('ngay', DATE_FORMAT(v_ngay, '%Y-%m-%d'),
                         'mua_cao_diem_id', v_mua_id,
                         'he_so_gia', v_he_so,
                         'gia_co_ban', v_gia_co_ban,
-                        'tien_dem', ROUND(v_gia_co_ban * v_he_so, 2))
+                        'tien_dem', v_gia_co_ban,
+                        'phi_mua_cao_diem', ROUND(v_gia_co_ban * v_he_so, 2))
         );
         SET v_ngay = DATE_ADD(v_ngay, INTERVAL 1 DAY);
     END WHILE;
     SET NEW.tien_phong_du_kien = v_tien_phong;
+    SET NEW.tien_phu_phi_mua_cao_diem = v_phu_phi_mua_cao_diem;
     SET NEW.ap_dung_mua_cao_diem = v_co_mua_cao_diem;
     SET NEW.chi_tiet_mua_cao_diem = v_chi_tiet;
 
@@ -1562,9 +1561,10 @@ BEGIN
     DECLARE v_changed_room_or_dates BOOLEAN DEFAULT FALSE;
     DECLARE v_gia_co_ban DECIMAL(12,2) DEFAULT 0.00;
     DECLARE v_ngay DATE;
-    DECLARE v_he_so DECIMAL(6,2) DEFAULT 1.00;
+    DECLARE v_he_so DECIMAL(4,2) DEFAULT 0.00;
     DECLARE v_mua_id INT DEFAULT NULL;
     DECLARE v_tien_phong DECIMAL(12,2) DEFAULT 0.00;
+    DECLARE v_phu_phi_mua_cao_diem DECIMAL(12,2) DEFAULT 0.00;
     DECLARE v_co_mua_cao_diem TINYINT(1) DEFAULT 0;
     DECLARE v_chi_tiet JSON;
 
@@ -1581,6 +1581,7 @@ BEGIN
 
     IF NOT v_changed_room_or_dates AND (
         NEW.tien_phong_du_kien <> OLD.tien_phong_du_kien
+        OR NEW.tien_phu_phi_mua_cao_diem <> OLD.tien_phu_phi_mua_cao_diem
         OR NEW.ap_dung_mua_cao_diem <> OLD.ap_dung_mua_cao_diem
         OR NOT (NEW.chi_tiet_mua_cao_diem <=> OLD.chi_tiet_mua_cao_diem)
     ) THEN
@@ -1714,25 +1715,28 @@ BEGIN
         SET v_chi_tiet = JSON_ARRAY();
         WHILE v_ngay < NEW.ngay_tra DO
             SET v_mua_id = NULL;
-            SET v_he_so = 1.00;
-            SELECT MAX(m.id), COALESCE(MAX(m.he_so_gia), 1.00)
+            SET v_he_so = 0.00;
+            SELECT MAX(m.id), COALESCE(MAX(m.he_so_gia), 0.00)
             INTO v_mua_id, v_he_so
             FROM muacaodiem m
             WHERE m.phong_id = NEW.phong_id
               AND v_ngay BETWEEN m.tu_ngay AND m.den_ngay;
             IF v_mua_id IS NOT NULL THEN SET v_co_mua_cao_diem = 1; END IF;
-            SET v_tien_phong = v_tien_phong + ROUND(v_gia_co_ban * v_he_so, 2);
+            SET v_tien_phong = v_tien_phong + v_gia_co_ban;
+            SET v_phu_phi_mua_cao_diem = v_phu_phi_mua_cao_diem + ROUND(v_gia_co_ban * v_he_so, 2);
             SET v_chi_tiet = JSON_ARRAY_APPEND(
                 v_chi_tiet, '$',
                 JSON_OBJECT('ngay', DATE_FORMAT(v_ngay, '%Y-%m-%d'),
                             'mua_cao_diem_id', v_mua_id,
                             'he_so_gia', v_he_so,
                             'gia_co_ban', v_gia_co_ban,
-                            'tien_dem', ROUND(v_gia_co_ban * v_he_so, 2))
+                            'tien_dem', v_gia_co_ban,
+                            'phi_mua_cao_diem', ROUND(v_gia_co_ban * v_he_so, 2))
             );
             SET v_ngay = DATE_ADD(v_ngay, INTERVAL 1 DAY);
         END WHILE;
         SET NEW.tien_phong_du_kien = v_tien_phong;
+        SET NEW.tien_phu_phi_mua_cao_diem = v_phu_phi_mua_cao_diem;
         SET NEW.ap_dung_mua_cao_diem = v_co_mua_cao_diem;
         SET NEW.chi_tiet_mua_cao_diem = v_chi_tiet;
     END IF;
@@ -1801,9 +1805,9 @@ BEGIN
         SET MESSAGE_TEXT = 'Khoang ngay mua cao diem khong hop le';
     END IF;
 
-    IF NEW.he_so_gia IS NULL OR NEW.he_so_gia <= 0 THEN
+    IF NEW.he_so_gia IS NULL OR NEW.he_so_gia NOT IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60) THEN
         SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'He so gia phai lon hon 0';
+        SET MESSAGE_TEXT = 'He so phu thu phai la 0.1, 0.2, 0.3, 0.4, 0.5 hoac 0.6';
     END IF;
 
     SELECT id INTO v_room_id
@@ -1845,9 +1849,9 @@ BEGIN
         SET MESSAGE_TEXT = 'Khoang ngay mua cao diem khong hop le';
     END IF;
 
-    IF NEW.he_so_gia IS NULL OR NEW.he_so_gia <= 0 THEN
+    IF NEW.he_so_gia IS NULL OR NEW.he_so_gia NOT IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60) THEN
         SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'He so gia phai lon hon 0';
+        SET MESSAGE_TEXT = 'He so phu thu phai la 0.1, 0.2, 0.3, 0.4, 0.5 hoac 0.6';
     END IF;
 
     SELECT id INTO v_room_id
@@ -2077,6 +2081,7 @@ BEGIN
     DECLARE v_booking_customer_id INT DEFAULT NULL;
     DECLARE v_booking_status VARCHAR(30) DEFAULT NULL;
     DECLARE v_booking_room_total DECIMAL(12,2) DEFAULT 0.00;
+    DECLARE v_booking_peak_fee DECIMAL(12,2) DEFAULT 0.00;
     DECLARE v_booking_peak_flag TINYINT(1) DEFAULT 0;
     DECLARE v_booking_peak_detail JSON DEFAULT NULL;
     DECLARE v_service_total DECIMAL(12,2) DEFAULT 0.00;
@@ -2091,9 +2096,9 @@ BEGIN
     END IF;
 
     SELECT khach_id, trang_thai, tien_phong_du_kien,
-           ap_dung_mua_cao_diem, chi_tiet_mua_cao_diem
+           tien_phu_phi_mua_cao_diem, ap_dung_mua_cao_diem, chi_tiet_mua_cao_diem
     INTO v_booking_customer_id, v_booking_status, v_booking_room_total,
-         v_booking_peak_flag, v_booking_peak_detail
+         v_booking_peak_fee, v_booking_peak_flag, v_booking_peak_detail
     FROM booking WHERE id = NEW.booking_id;
     IF NOT v_has_booking THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Booking khong ton tai';
@@ -2107,12 +2112,13 @@ BEGIN
 
     SELECT COALESCE(SUM(don_gia * so_luong), 0)
     INTO v_service_total FROM dichvu WHERE booking_id = NEW.booking_id;
-    IF NEW.so_tien <> (v_booking_room_total + v_service_total) THEN
+    IF NEW.so_tien <> (v_booking_room_total + v_booking_peak_fee + v_service_total) THEN
         SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'So tien Pay khong khop tien phong da chot va dich vu Booking';
+        SET MESSAGE_TEXT = 'So tien Pay phai bang tien phong + phu phi cao diem + dich vu Booking';
     END IF;
 
     SET NEW.tien_phong_ap_dung = v_booking_room_total;
+    SET NEW.tien_phu_phi_mua_cao_diem = v_booking_peak_fee;
     SET NEW.ap_dung_mua_cao_diem = v_booking_peak_flag;
     SET NEW.chi_tiet_mua_cao_diem = v_booking_peak_detail;
 END$$
@@ -2139,6 +2145,7 @@ BEGIN
        OR NEW.so_tien <> OLD.so_tien
        OR NEW.method <> OLD.method
        OR NEW.tien_phong_ap_dung <> OLD.tien_phong_ap_dung
+       OR NEW.tien_phu_phi_mua_cao_diem <> OLD.tien_phu_phi_mua_cao_diem
        OR NEW.ap_dung_mua_cao_diem <> OLD.ap_dung_mua_cao_diem
        OR NOT (NEW.chi_tiet_mua_cao_diem <=> OLD.chi_tiet_mua_cao_diem) THEN
         SIGNAL SQLSTATE '45000'
@@ -2244,14 +2251,16 @@ BEGIN
     DECLARE v_gia_co_ban DECIMAL(12,2) DEFAULT 0;
     DECLARE v_he_so DECIMAL(6,2) DEFAULT 1;
     DECLARE v_calc_tien_phong DECIMAL(12,2) DEFAULT 0;
+    DECLARE v_calc_phu_phi DECIMAL(12,2) DEFAULT 0;
     DECLARE v_calc_tien_dv DECIMAL(12,2) DEFAULT 0;
     DECLARE v_has_pay BOOLEAN DEFAULT TRUE;
 
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_has_pay = FALSE;
 
-    IF NEW.tien_phong IS NULL OR NEW.tien_dich_vu IS NULL OR NEW.tong_tien IS NULL
-       OR NEW.tien_phong < 0 OR NEW.tien_dich_vu < 0
-       OR NEW.tong_tien <> (NEW.tien_phong + NEW.tien_dich_vu) THEN
+    IF NEW.tien_phong IS NULL OR NEW.tien_phu_phi_mua_cao_diem IS NULL
+       OR NEW.tien_dich_vu IS NULL OR NEW.tong_tien IS NULL
+       OR NEW.tien_phong < 0 OR NEW.tien_phu_phi_mua_cao_diem < 0 OR NEW.tien_dich_vu < 0
+       OR NEW.tong_tien <> (NEW.tien_phong + NEW.tien_phu_phi_mua_cao_diem + NEW.tien_dich_vu) THEN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Thanh phan tien hoa don khong hop le';
     END IF;
@@ -2283,7 +2292,8 @@ BEGIN
         SET MESSAGE_TEXT = 'Khong the lap hoa don cho Booking da huy';
     END IF;
 
-    SELECT py.tien_phong_ap_dung INTO v_calc_tien_phong
+    SELECT py.tien_phong_ap_dung, py.tien_phu_phi_mua_cao_diem
+    INTO v_calc_tien_phong, v_calc_phu_phi
     FROM pay py WHERE py.id = NEW.pay_id;
 
     SELECT COALESCE(SUM(d.don_gia * d.so_luong), 0)
@@ -2294,6 +2304,11 @@ BEGIN
     IF NEW.tien_phong <> v_calc_tien_phong THEN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Tien phong hoa don khong khop snapshot gia Booking/Pay';
+    END IF;
+
+    IF NEW.tien_phu_phi_mua_cao_diem <> v_calc_phu_phi THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Phu phi mua cao diem hoa don khong khop snapshot Booking/Pay';
     END IF;
 
     IF NEW.tien_dich_vu <> v_calc_tien_dv THEN
@@ -2326,6 +2341,7 @@ BEGIN
     DECLARE v_gia_co_ban DECIMAL(12,2) DEFAULT 0;
     DECLARE v_he_so DECIMAL(6,2) DEFAULT 1;
     DECLARE v_calc_tien_phong DECIMAL(12,2) DEFAULT 0;
+    DECLARE v_calc_phu_phi DECIMAL(12,2) DEFAULT 0;
     DECLARE v_calc_tien_dv DECIMAL(12,2) DEFAULT 0;
     DECLARE v_has_pay BOOLEAN DEFAULT TRUE;
 
@@ -2336,9 +2352,10 @@ BEGIN
         SET MESSAGE_TEXT = 'Khong duoc thay doi pay_id cua hoa don';
     END IF;
 
-    IF NEW.tien_phong IS NULL OR NEW.tien_dich_vu IS NULL OR NEW.tong_tien IS NULL
-       OR NEW.tien_phong < 0 OR NEW.tien_dich_vu < 0
-       OR NEW.tong_tien <> (NEW.tien_phong + NEW.tien_dich_vu) THEN
+    IF NEW.tien_phong IS NULL OR NEW.tien_phu_phi_mua_cao_diem IS NULL
+       OR NEW.tien_dich_vu IS NULL OR NEW.tong_tien IS NULL
+       OR NEW.tien_phong < 0 OR NEW.tien_phu_phi_mua_cao_diem < 0 OR NEW.tien_dich_vu < 0
+       OR NEW.tong_tien <> (NEW.tien_phong + NEW.tien_phu_phi_mua_cao_diem + NEW.tien_dich_vu) THEN
         SIGNAL SQLSTATE '45000'
         SET MESSAGE_TEXT = 'Tong tien hoa don khong hop le';
     END IF;
@@ -2363,7 +2380,8 @@ BEGIN
         SET MESSAGE_TEXT = 'Chi duoc sua hoa don khi Pay dang CHO_THANH_TOAN';
     END IF;
 
-    SELECT py.tien_phong_ap_dung INTO v_calc_tien_phong
+    SELECT py.tien_phong_ap_dung, py.tien_phu_phi_mua_cao_diem
+    INTO v_calc_tien_phong, v_calc_phu_phi
     FROM pay py WHERE py.id = NEW.pay_id;
 
     SELECT COALESCE(SUM(d.don_gia * d.so_luong), 0)
@@ -2372,6 +2390,7 @@ BEGIN
     WHERE d.booking_id = v_booking_id;
 
     IF NEW.tien_phong <> v_calc_tien_phong
+       OR NEW.tien_phu_phi_mua_cao_diem <> v_calc_phu_phi
        OR NEW.tien_dich_vu <> v_calc_tien_dv
        OR NEW.tong_tien <> v_pay_amount THEN
         SIGNAL SQLSTATE '45000'
@@ -2447,6 +2466,8 @@ SELECT b.id AS booking_id,
        p.so_phong,
        lp.ten AS loai_phong,
        lp.gia_co_ban,
+       b.tien_phong_du_kien,
+       b.tien_phu_phi_mua_cao_diem,
        COALESCE((
            SELECT SUM(d.don_gia * d.so_luong)
            FROM dichvu d WHERE d.booking_id = b.id
@@ -2521,6 +2542,7 @@ CREATE OR REPLACE VIEW `v_chi_tiet_hoa_don` AS
 SELECT hd.id AS hoadon_id,
        hd.ngay_lap,
        hd.tien_phong,
+       hd.tien_phu_phi_mua_cao_diem,
        hd.tien_dich_vu,
        hd.tong_tien,
        py.id AS pay_id,
@@ -2607,7 +2629,7 @@ SELECT m.id AS mua_cao_diem_id,
        DATEDIFF(m.den_ngay, m.tu_ngay) + 1 AS so_ngay_ap_dung,
        m.he_so_gia,
        lp.gia_co_ban,
-       ROUND(lp.gia_co_ban * m.he_so_gia, 2) AS gia_mot_dem_mua_cao_diem
+       ROUND(lp.gia_co_ban * m.he_so_gia, 2) AS phu_phi_mua_cao_diem_moi_dem
 FROM muacaodiem m
 JOIN phong p ON p.id = m.phong_id
 JOIN loaiphong lp ON lp.id = p.loai_phong_id;
