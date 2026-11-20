@@ -1,30 +1,31 @@
 HOTEL PROJECT 5 - HANDOVER CHECKS
 ================================
 
-Passed in this build:
-- Python syntax: all 34 .py files in this build parse successfully.
-- FastAPI module/routes: payment webhook, QR customer endpoints and admin webhook-audit route are registered; import smoke test uses a stub MySQL connector.
-- Authorization wiring: all 48 non-auth /api management routes carry the ADMIN dependency.
-- Auth logic: the seeded Admin@123 PBKDF2 hash matches the password verifier; JWT create/decode round-trip passed.
-- GUI separation: app.py and pages/*.py contain no MySQL connector, cursor or SQL execute calls; GUI uses HTTP API Client.
-- SQL inventory (static count): 11 CREATE TABLE statements (8 ERD entities + users + 2 QR support tables), 15 procedures, 15 triggers, 10 views.
-- Sample Pay #11 refunded transaction now has its own HoaDon row; failed Pay #10 remains without an invoice.
+Peak-season surcharge update
+- Peak-season rates are restricted to 0.6, 0.5, 0.4, 0.3, 0.2 and 0.1.
+- The amount is additive: nightly base room price x rate. It is not a room-price multiplier.
+- Booking, Pay and HoaDon persist the surcharge separately from base room and service amounts.
+- Invoice total is checked as base room + peak surcharge + services.
+- Existing-database migration: Hotel_Peak_Surcharge_Migration.sql. It preserves Pay amounts, invoice totals, statuses and QR history.
+- Fresh database install: use Hotel_Complete.sql OR the six modular SQL files in README.md; do not run both.
 
-Not claimed as tested here:
-- No live MySQL Server was available in this environment, and mysql-connector-python could not be installed here because package network access was unavailable.
-- Therefore the SQL files and real DB transactions have not been executed against MySQL in this environment.
-- GUI has not been launched on a Windows desktop in this environment.
+Checks performed in this build
+- Python syntax compilation: passed for api/, pages/, app.py and tests/.
+- Focused peak-season tests: 6 passed (new snapshot, legacy snapshot, non-peak, stored amount, requested total example, allowed rates).
+- Static review: Admin and Customer pricing previews, Booking/Pay/Invoice response fields and PDF line items use the separate surcharge.
+- SQL test cases added for allowed rates, Booking nightly snapshot totals, Pay-to-Booking snapshot equality, Pay-to-invoice amounts and three-part invoice sums.
+- A duplicate SELECT token in the Admin eligible-invoice query was corrected.
+- .env.example contains placeholders only. Local .env and session.json are not included in the deliverable archive.
 
-Run the SQL scripts in the order documented in README.md, then run Hotel_TestCase.sql.
-The /health/db API endpoint checks the 8 ERD tables + users + payment_qr + sepay_webhook_events, 15 triggers, 15 stored procedures and 10 views.
-CUSTOMER PORTAL ADDITION
-- CUSTOMER login opens pages/customer_portal.py instead of the ADMIN workspace.
-- CUSTOMER API router is mounted with require_customer authorization.
-- Booking creation uses khach_id from the authenticated token, not client input.
-- Customer booking, payment, and invoice queries are filtered by authenticated khach_id.
-- Customer CHUYEN_KHOAN requests create a pending Pay + HoaDon via sp_tinh_tien_va_tao_hoa_don, display a VietQR transfer QR, and poll payment status. Authenticated SePay webhooks perform exact-amount reconciliation.
-- QR settings and SePay webhook credentials must be supplied in the local .env; the webhook needs a public HTTPS URL.
-- Python syntax compilation must be rerun after install; MySQL integration tests require a live MySQL 8 server.
+Not claimed as tested here
+- No live MySQL Server was available in this environment. SQL DDL, triggers, stored procedures, migration and SQL test cases have not been executed against a running MySQL instance.
+- The Tkinter GUI has not been launched on a Windows desktop in this environment.
 
+Before using the application
+1. Back up your existing database.
+2. For an existing database with the earlier peak-season snapshot columns, run Hotel_Peak_Surcharge_Migration.sql once.
+3. For a fresh database, use Hotel_Complete.sql OR the modular order documented in README.md.
+4. Run Hotel_TestCase.sql and confirm all *_MISMATCH / *_INVALID / *_MISSING counters are zero (except any known legacy conditions you intentionally retain).
+5. Copy .env.example to .env and enter your own MySQL / authentication / payment settings.
 
-QR payment checks: the customer QR is owner-scoped; a payment becomes THANH_CONG only after an authenticated SePay incoming-transfer webhook matches the receiving account, payment code, Pay amount and invoice total. Duplicate provider transaction IDs are ignored.
+This build keeps the eight ERD business tables and the existing support tables; it does not add new database tables.

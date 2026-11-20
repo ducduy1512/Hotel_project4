@@ -156,6 +156,7 @@ class InvoicesPage:
             pady=10
         )
 
+        # Đặt Tổng tiền ngay sau cột Phụ phí mùa cao điểm.
         columns = (
             "id",
             "pay_id",
@@ -164,8 +165,8 @@ class InvoicesPage:
             "so_phong",
             "tien_phong",
             "tien_dich_vu",
-            "tong_tien",
             "mua_cao_diem",
+            "tong_tien",
             "ngay_lap"
         )
 
@@ -184,8 +185,8 @@ class InvoicesPage:
             "so_phong": "Số phòng",
             "tien_phong": "Tiền phòng",
             "tien_dich_vu": "Tiền dịch vụ",
+            "mua_cao_diem": "Phụ phí mùa cao điểm",
             "tong_tien": "Tổng tiền",
-            "mua_cao_diem": "Mùa cao điểm",
             "ngay_lap": "Ngày lập"
         }
 
@@ -197,8 +198,8 @@ class InvoicesPage:
             "so_phong": 80,
             "tien_phong": 120,
             "tien_dich_vu": 120,
+            "mua_cao_diem": 205,
             "tong_tien": 130,
-            "mua_cao_diem": 110,
             "ngay_lap": 160
         }
 
@@ -266,6 +267,7 @@ class InvoicesPage:
             ("booking_id", "Mã booking"),
             ("ho_ten", "Khách hàng"),
             ("so_phong", "Số phòng"),
+            ("tien_mua_cao_diem", "Phụ phí mùa cao điểm"),
             ("tong_tien", "Tổng thanh toán")
         ]
 
@@ -307,13 +309,35 @@ class InvoicesPage:
 
     @staticmethod
     def format_money(value):
-
         try:
             number = Decimal(str(value or 0))
-            return f"{number:,.0f} đ"
-
+            return f"{number:,.0f}".replace(",", ".") + " đ"
         except Exception:
             return "0 đ"
+
+    @classmethod
+    def format_peak_season(cls, record):
+        if not record.get("ap_dung_mua_cao_diem"):
+            return "0"
+        if record.get("mua_cao_diem_snapshot_status") != "OK":
+            return "THIẾU SNAPSHOT"
+
+        amount = cls.format_money(record.get("tien_mua_cao_diem", 0))
+        factors = record.get("he_so_mua_cao_diem") or []
+        factor_labels = []
+        for factor in factors:
+            try:
+                normalized_decimal = Decimal(str(factor)).normalize()
+                normalized = format(normalized_decimal, "f")
+                if "." not in normalized:
+                    normalized += ".0"
+            except Exception:
+                normalized = str(factor)
+            factor_labels.append("+" + normalized.replace(".", ","))
+
+        if not factor_labels:
+            return amount
+        return f"{amount} ({'; '.join(factor_labels)})"
 
     @staticmethod
     def format_date(value):
@@ -459,7 +483,7 @@ class InvoicesPage:
         if not messagebox.askyesno(
             "Xác nhận lập hóa đơn",
             f"Tính tiền và lập hóa đơn cho Booking #{booking_id} bằng {method}?\n"
-            "Database sẽ tự tính tiền phòng, dịch vụ và tạo giao dịch Pay chờ thanh toán."
+            "Database sẽ tách tiền phòng cơ bản, phụ phí mùa cao điểm và tiền dịch vụ; tổng hóa đơn là tổng của cả ba khoản."
         ):
             return
 
@@ -532,10 +556,10 @@ class InvoicesPage:
                     self.format_money(
                         invoice.get("tien_dich_vu", 0)
                     ),
+                    self.format_peak_season(invoice),
                     self.format_money(
                         invoice.get("tong_tien", 0)
                     ),
-                    "CÓ" if invoice.get("ap_dung_mua_cao_diem") else "KHÔNG",
                     self.format_date(
                         invoice.get("ngay_lap", "")
                     )
@@ -575,6 +599,7 @@ class InvoicesPage:
                 "booking_id": invoice.get("booking_id"),
                 "ho_ten": invoice.get("ho_ten"),
                 "so_phong": invoice.get("so_phong"),
+                "tien_mua_cao_diem": self.format_peak_season(invoice),
                 "tong_tien": self.format_money(
                     invoice.get("tong_tien", 0)
                 )
@@ -908,7 +933,7 @@ class InvoicesPage:
 
         def money(value):
             try:
-                return f"{Decimal(str(value or 0)):,.0f} đ"
+                return f"{Decimal(str(value or 0)):,.0f}".replace(",", ".") + " đ"
             except Exception:
                 return "0 đ"
 
@@ -1029,10 +1054,15 @@ class InvoicesPage:
 
         # CHI TIẾT THANH TOÁN
 
+        peak_money_display = self.format_peak_season(invoice)
         amount_data = [
             [
                 p("Tiền phòng", normal_style),
                 p(room_money, value_style)
+            ],
+            [
+                p("Phụ phí mùa cao điểm", normal_style),
+                p(peak_money_display, value_style)
             ],
             [
                 p("Tiền dịch vụ", normal_style),
@@ -1043,7 +1073,7 @@ class InvoicesPage:
         amount_table = Table(
             amount_data,
             colWidths=[85 * mm, 85 * mm],
-            rowHeights=[12 * mm, 12 * mm]
+            rowHeights=[12 * mm, 12 * mm, 12 * mm]
         )
 
         amount_table.setStyle(

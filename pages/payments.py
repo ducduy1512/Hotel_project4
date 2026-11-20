@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
+from decimal import Decimal
 
 from api_client import api_client, APIError
 
@@ -149,13 +150,14 @@ class PaymentsPage:
         table_frame = ttk.Frame(self.frame)
         table_frame.pack(fill="both", expand=True)
 
+        # Đặt Tổng Pay ngay sau cột Phụ phí mùa cao điểm.
         columns = (
             "id",
             "booking_id",
             "ngay_thanh_toan",
-            "so_tien",
             "tien_phong_ap_dung",
             "mua_cao_diem",
+            "so_tien",
             "method",
             "status"
         )
@@ -171,9 +173,9 @@ class PaymentsPage:
             "id": "Payment ID",
             "booking_id": "Booking ID",
             "ngay_thanh_toan": "Ngày thanh toán",
-            "so_tien": "Tổng Pay",
             "tien_phong_ap_dung": "Tiền phòng đã chốt",
-            "mua_cao_diem": "Mùa cao điểm",
+            "mua_cao_diem": "Phụ phí mùa cao điểm",
+            "so_tien": "Tổng Pay",
             "method": "Phương thức",
             "status": "Trạng thái"
         }
@@ -182,9 +184,9 @@ class PaymentsPage:
             "id": 90,
             "booking_id": 100,
             "ngay_thanh_toan": 170,
-            "so_tien": 130,
             "tien_phong_ap_dung": 150,
-            "mua_cao_diem": 115,
+            "mua_cao_diem": 205,
+            "so_tien": 130,
             "method": 130,
             "status": 180
         }
@@ -261,6 +263,38 @@ class PaymentsPage:
                 "Lỗi tải thanh toán", str(error)
             )
 
+    @staticmethod
+    def format_money(value):
+        try:
+            amount = Decimal(str(value or 0))
+            return f"{amount:,.0f}".replace(",", ".") + " đ"
+        except Exception:
+            return "0 đ"
+
+    @classmethod
+    def format_peak_season(cls, record):
+        if not record.get("ap_dung_mua_cao_diem"):
+            return "0"
+        if record.get("mua_cao_diem_snapshot_status") != "OK":
+            return "THIẾU SNAPSHOT"
+
+        amount = cls.format_money(record.get("tien_mua_cao_diem", 0))
+        factors = record.get("he_so_mua_cao_diem") or []
+        factor_labels = []
+        for factor in factors:
+            try:
+                normalized_decimal = Decimal(str(factor)).normalize()
+                normalized = format(normalized_decimal, "f")
+                if "." not in normalized:
+                    normalized += ".0"
+            except Exception:
+                normalized = str(factor)
+            factor_labels.append("+" + normalized.replace(".", ","))
+
+        if not factor_labels:
+            return amount
+        return f"{amount} ({'; '.join(factor_labels)})"
+
     def display_payments(self, payments):
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -271,13 +305,11 @@ class PaymentsPage:
                 "end",
                 values=(
                     payment.get("id", payment.get("pay_id", "")),
-                    payment.get(
-                        "booking_id", payment.get("booking_id", "")
-                    ),
+                    payment.get("booking_id", ""),
                     payment.get("ngay_thanh_toan", ""),
-                    payment.get("so_tien", 0),
-                    payment.get("tien_phong_ap_dung", 0),
-                    "CÓ" if payment.get("ap_dung_mua_cao_diem") else "KHÔNG",
+                    self.format_money(payment.get("tien_phong_ap_dung", 0)),
+                    self.format_peak_season(payment),
+                    self.format_money(payment.get("so_tien", 0)),
                     payment.get("method", ""),
                     payment.get("status", "")
                 )
@@ -452,9 +484,10 @@ class PaymentsPage:
 
         self.selected_id = int(values[0])
         self.booking_var.set(str(values[1]))
-        self.amount_var.set(str(values[3]))
-        self.method_var.set(values[4])
-        self.status_var.set(values[5])
+        # Thứ tự cột mới: ... tiền phòng, phụ phí, tổng Pay, phương thức, trạng thái.
+        self.amount_var.set(str(values[5]))
+        self.method_var.set(values[6])
+        self.status_var.set(values[7])
 
     def search_payments(self):
         keyword = self.search_var.get().strip()

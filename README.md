@@ -65,7 +65,7 @@ Các bảng `users`, `payment_qr`, `sepay_webhook_events` là bảng bổ trợ 
 
 Trong `dichvu`, dịch vụ mặc định gắn phòng có `booking_id = NULL`; dịch vụ được dùng trong một lần lưu trú có cả `phong_id` và `booking_id`. Trigger kiểm tra hai thông tin phòng phải khớp. Khi tạo Booking, Trigger sao chép dịch vụ mặc định của phòng sang Booking.
 
-Giá mùa cao điểm được tính theo từng đêm lưu trú (ngày trả phòng không tính tiền). `booking` lưu snapshot gồm `tien_phong_du_kien`, `ap_dung_mua_cao_diem`, `chi_tiet_mua_cao_diem`; khi tạo Pay, Trigger sao chép snapshot sang `pay.tien_phong_ap_dung`, `pay.ap_dung_mua_cao_diem`, `pay.chi_tiet_mua_cao_diem`. Hóa đơn kiểm tra tiền phòng theo snapshot của Pay, không đọc lại cấu hình mùa cao điểm có thể đã bị thay đổi. Vì vậy, thay đổi hệ số sau khi Booking đã tạo chỉ ảnh hưởng Booking mới.
+Giá mùa cao điểm được tính theo từng đêm lưu trú (ngày trả phòng không tính tiền) như **phụ phí cộng thêm**, không nhân lại tiền phòng. `muacaodiem.he_so_gia` chỉ nhận các mức `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1`. Phụ phí mỗi đêm = giá phòng cơ bản mỗi đêm × hệ số. `booking` lưu riêng `tien_phong_du_kien` (tiền phòng cơ bản), `tien_phu_phi_mua_cao_diem` và snapshot chi tiết; khi tạo Pay, Trigger sao chép toàn bộ snapshot sang `pay`. Hóa đơn có ba khoản riêng: `tien_phong`, `tien_phu_phi_mua_cao_diem`, `tien_dich_vu`; bắt buộc `tong_tien = tien_phong + tien_phu_phi_mua_cao_diem + tien_dich_vu`. Ví dụ: 1.000.000 + 200.000 (+0.2) + 50.000 = **1.250.000 VNĐ**. Thay đổi cấu hình sau khi Booking đã tạo chỉ ảnh hưởng Booking mới.
 
 ## 4. Cài đặt SQL bằng MySQL Workbench
 
@@ -163,8 +163,8 @@ Sau khi chạy SQL mẫu:
 2. Kiểm tra phòng trống theo ngày.
 3. Tạo Booking và xác nhận Booking.
 4. Nhận phòng, thêm dịch vụ.
-5. Kiểm tra giá dự kiến theo từng đêm; những đêm nằm trong `muacaodiem` được nhân hệ số đã cấu hình.
-6. Lập hóa đơn/tính tiền theo snapshot Booking, hệ số mùa cao điểm và dịch vụ.
+5. Kiểm tra giá dự kiến theo từng đêm; mỗi đêm thuộc `muacaodiem` cộng phụ phí = giá phòng cơ bản × hệ số 0.1–0.6.
+6. Lập hóa đơn/tính tiền từ snapshot Booking theo công thức: tiền phòng cơ bản + phụ phí mùa cao điểm + tiền dịch vụ.
 7. Cập nhật Pay sang `THANH_CONG` sau khi hóa đơn hợp lệ đã tồn tại.
 8. Trả phòng; kiểm tra trạng thái phòng được đồng bộ.
 9. Thử đặt trùng phòng, gắn dịch vụ sai phòng, sửa giao dịch sau khi tạo và xóa hóa đơn đã thanh toán; các thao tác trái quy tắc phải bị từ chối.
@@ -203,8 +203,8 @@ Sao chép `.env.example` thành `.env` và điền thông tin tài khoản nhậ
 
 ```dotenv
 PAYMENT_BANK_CODE=Vietcombank
-PAYMENT_BANK_ACCOUNT=0123456789
-PAYMENT_ACCOUNT_NAME=TEN CHU TAI KHOAN
+PAYMENT_BANK_ACCOUNT=YOUR_BANK_ACCOUNT_NUMBER
+PAYMENT_ACCOUNT_NAME=YOUR_ACCOUNT_NAME
 PAYMENT_QR_IMAGE_URL=https://vietqr.app/img
 
 SEPAY_WEBHOOK_AUTH_MODE=HMAC_SHA256
@@ -239,14 +239,18 @@ Webhook endpoint công khai (tự xác thực, không dùng Bearer Token): `POST
 
 **Giới hạn bảo vệ:** phiên bản này hỗ trợ một lần chuyển khoản đúng toàn bộ số tiền cho mỗi Pay. Chuyển thiếu/thừa, sai tài khoản, sai mã hoặc Booking đã hủy sẽ được ghi nhật ký nhưng không tự xác nhận; ADMIN cần đối soát thủ công với ngân hàng. QR VietQR chỉ tạo chỉ dẫn chuyển khoản, việc xác nhận tự động phụ thuộc webhook SePay được cấu hình và có thể truy cập công khai.
 
-## 11. Cập nhật QR cho database đã tồn tại
+## 11. Cập nhật database đã tồn tại
 
-Nếu database đã có dữ liệu, không chạy lại `Hotel_Table.sql` hoặc `Hotel_Complete.sql`. Hãy sao lưu database, sau đó chạy một lần `Hotel_QR_Payment_Migration.sql` trên database `hotel_management_erd`. File này chỉ tạo hai bảng hỗ trợ QR/webhook, không DROP hay sửa dữ liệu Booking/Pay/HoaDon.
+Nếu database đã có dữ liệu, **không chạy lại** `Hotel_Table.sql` hoặc `Hotel_Complete.sql` vì hai file sẽ DROP và tạo lại database.
 
-Nếu database hiện tại chưa có snapshot mùa cao điểm, chạy tiếp `Hotel_Peak_Season_Migration.sql` theo hướng dẫn bên dưới. Nếu đã chạy migration mùa cao điểm rồi thì không cần chạy lại.
+Với database từ phiên bản trước đang có các cột snapshot mùa cao điểm (`booking.tien_phong_du_kien`, `booking.chi_tiet_mua_cao_diem`, `pay.tien_phong_ap_dung`), hãy sao lưu trước rồi chạy **một lần** `Hotel_Peak_Surcharge_Migration.sql` trên `hotel_management_erd`. Script sẽ thêm cột phụ phí vào Booking/Pay/HoaDon, chuyển hệ số nhân cũ như `1.20` thành phụ phí `0.20`, cập nhật snapshot và thay Trigger/Stored Procedure/View liên quan. Script giữ nguyên `pay.so_tien`, `hoadon.tong_tien`, trạng thái thanh toán và lịch sử QR.
 
-## 12. Cập nhật mùa cao điểm cho database đang có dữ liệu
+`Hotel_Peak_Season_Migration.sql` là migration của phiên bản cũ dùng để bổ sung snapshot mùa cao điểm ban đầu. Không chạy file cũ này thay cho `Hotel_Peak_Surcharge_Migration.sql` đối với database hiện tại trong gói dự án. Database rất cũ chưa có các cột snapshot cần được nâng cấp qua migration snapshot trước, sau đó mới chạy migration phụ phí mới.
 
-Nếu database đã được tạo từ phiên bản trước, không chạy lại `Hotel_Table.sql` hoặc `Hotel_Complete.sql` vì hai file này tạo lại database. Hãy sao lưu và chạy một lần `Hotel_Peak_Season_Migration.sql` trên đúng database trong `.env` (`DB_NAME`). Sau đó khởi động lại API và GUI. File migration bổ sung snapshot cho `booking` và `pay`, backfill các bản ghi cũ, rồi cập nhật Trigger/Stored Procedure liên quan.
+### Hiển thị và đối soát tiền mùa cao điểm
 
-`Hotel_Complete.sql` và bộ SQL module rời (`Hotel_Table.sql`, `Hotel_InsertData.sql`, `Hotel_Procedures.sql`, `Hotel_Trigger.sql`, `Hotel_Report.sql`) đã được đồng bộ để dùng cho cài mới.
+Admin và Customer đều xem được hệ số phụ thu dưới dạng `+0,6` đến `+0,1` và số tiền phụ phí tách riêng. Chi tiết theo đêm ghi nhận giá phòng cơ bản, hệ số, và tiền phụ phí; hóa đơn/PDF liệt kê riêng tiền phòng, phụ phí mùa cao điểm, tiền dịch vụ và tổng cộng.
+
+Sau khi cài đặt hoặc migration, chạy `Hotel_TestCase.sql`. Các bộ đếm sau phải bằng 0: `INVOICE_TOTAL_MISMATCH`, `PAY_INVOICE_ROOM_SNAPSHOT_MISMATCH`, `PAY_INVOICE_PEAK_FEE_MISMATCH`, `PAY_AMOUNT_INVOICE_TOTAL_MISMATCH`, `BOOKING_PEAK_PRICE_SNAPSHOT_MISSING` và `PAY_SEASON_SNAPSHOT_MISSING`.
+
+Không tự sửa `tien_phong`, `tien_phu_phi_mua_cao_diem`, `tien_dich_vu`, `tong_tien` trực tiếp trên hóa đơn đã tạo. Trigger kiểm tra từng khoản theo snapshot Pay/Booking và dịch vụ đã chốt để ngăn hóa đơn lệch.

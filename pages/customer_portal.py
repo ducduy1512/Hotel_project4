@@ -111,9 +111,9 @@ class CustomerPortalPage:
             tk.Entry(group, textvariable=var, width=18, font=("Arial", 10)).pack(pady=(4, 0), ipady=5)
         tk.Button(form, text="TÌM PHÒNG", command=self.search_rooms, bg=self.BLUE, fg="white",
                   relief="flat", padx=16, pady=8, cursor="hand2").pack(side="left", pady=(17, 0))
-        self.rooms_tree = self._tree(self.rooms_tab, ("room", "type", "price", "capacity", "status"),
-                                     ("Số phòng", "Loại phòng", "Tiền phòng dự kiến", "Sức chứa", "Trạng thái"),
-                                     (110, 180, 170, 110, 130))
+        self.rooms_tree = self._tree(self.rooms_tab, ("room", "type", "price", "peak_fee", "capacity", "status"),
+                                     ("Số phòng", "Loại phòng", "Tiền phòng cơ bản", "Phụ phí cao điểm", "Sức chứa", "Trạng thái"),
+                                     (100, 150, 145, 150, 90, 115))
         tk.Button(self.rooms_tab, text="ĐẶT PHÒNG ĐANG CHỌN", command=self.book_selected_room,
                   bg=self.GREEN, fg="white", relief="flat", padx=16, pady=9, cursor="hand2").pack(anchor="e", pady=(6, 0))
 
@@ -123,9 +123,9 @@ class CustomerPortalPage:
         tk.Label(self.bookings_tab, text="Bạn chỉ xem và thao tác trên Booking thuộc tài khoản của mình.",
                  bg="white", fg="#64748B").pack(anchor="w", pady=(3, 8))
         self.bookings_tree = self._tree(self.bookings_tab,
-            ("id", "room", "type", "checkin", "checkout", "nights", "room_fee", "peak", "status", "paid"),
-            ("Mã Booking", "Phòng", "Loại phòng", "Ngày nhận", "Ngày trả", "Số đêm", "Tiền phòng", "Mùa cao điểm", "Trạng thái", "Đã thanh toán"),
-            (85, 70, 115, 100, 100, 60, 120, 100, 125, 125))
+            ("id", "room", "type", "checkin", "checkout", "nights", "room_fee", "peak_fee", "status", "paid"),
+            ("Mã Booking", "Phòng", "Loại phòng", "Ngày nhận", "Ngày trả", "Số đêm", "Tiền phòng", "Phụ phí cao điểm", "Trạng thái", "Đã thanh toán"),
+            (75, 60, 100, 90, 90, 55, 105, 140, 105, 110))
         actions = tk.Frame(self.bookings_tab, bg="white")
         actions.pack(fill="x", pady=(8, 0))
         tk.Button(actions, text="LÀM MỚI", command=self.refresh_bookings, bg="#475569", fg="white",
@@ -150,9 +150,9 @@ class CustomerPortalPage:
         tk.Label(self.invoices_tab, text="Danh sách chỉ gồm hóa đơn phát sinh từ Booking của tài khoản hiện tại.",
                  bg="white", fg="#64748B").pack(anchor="w", pady=(3, 8))
         self.invoices_tree = self._tree(self.invoices_tab,
-            ("id", "booking", "room", "room_fee", "service_fee", "total", "peak", "method", "status", "date"),
-            ("Mã HĐ", "Booking", "Phòng", "Tiền phòng", "Tiền dịch vụ", "Tổng tiền", "Mùa cao điểm", "Phương thức", "Thanh toán", "Ngày lập"),
-            (65, 70, 60, 115, 120, 120, 100, 100, 115, 95))
+            ("id", "booking", "room", "room_fee", "peak_fee", "service_fee", "total", "method", "status", "date"),
+            ("Mã HĐ", "Booking", "Phòng", "Tiền phòng", "Phụ phí cao điểm", "Tiền dịch vụ", "Tổng tiền", "Phương thức", "Thanh toán", "Ngày lập"),
+            (60, 65, 55, 100, 125, 100, 110, 90, 105, 90))
         tk.Button(self.invoices_tab, text="LÀM MỚI HÓA ĐƠN", command=self.refresh_invoices,
                   bg=self.BLUE, fg="white", relief="flat", padx=14, pady=8).pack(anchor="e", pady=(8, 0))
 
@@ -189,7 +189,7 @@ class CustomerPortalPage:
                 self.room_rows[room_id] = room
                 self.rooms_tree.insert("", "end", iid=str(room_id), values=(
                     room.get("so_phong"), room.get("loai_phong"), self._money(room.get("tien_phong_du_kien", room.get("gia_co_ban"))),
-                    room.get("suc_chua"), room.get("trang_thai")))
+                    self._money(room.get("tien_phu_phi_mua_cao_diem", 0)), room.get("suc_chua"), room.get("trang_thai")))
             messagebox.showinfo("Tìm phòng", f"Tìm thấy {len(rows)} phòng phù hợp.", parent=self.frame)
         except APIError as exc:
             messagebox.showerror("Không thể tìm phòng", str(exc), parent=self.frame)
@@ -243,14 +243,16 @@ class CustomerPortalPage:
                         "ngay_tra": self.checkout_var.get().strip()}
             )
             season_lines = [
-                f"{night.get('ngay')}: hệ số x{night.get('he_so_gia')} → {self._money(night.get('tien_dem'))}"
+                f"{night.get('ngay')}: phụ thu +{night.get('he_so_gia')} × {self._money(night.get('gia_co_ban'))} = {self._money(night.get('phi_mua_cao_diem'))}"
                 for night in price_preview.get("chi_tiet_mua_cao_diem", [])
                 if night.get("mua_cao_diem_id") is not None
             ]
             season_label = "CÓ ÁP DỤNG MÙA CAO ĐIỂM" if price_preview.get("ap_dung_mua_cao_diem") else "Không áp dụng mùa cao điểm"
             tk.Label(
                 dialog,
-                text=f"Tiền phòng dự kiến: {self._money(price_preview.get('tien_phong_du_kien'))}  |  {season_label}",
+                text=(f"Tiền phòng cơ bản: {self._money(price_preview.get('tien_phong_du_kien'))}  |  "
+                      f"Phụ phí mùa cao điểm: {self._money(price_preview.get('tien_phu_phi_mua_cao_diem'))}  |  "
+                      f"Tạm tính (chưa gồm dịch vụ): {self._money(price_preview.get('tong_tien_phong_va_phu_phi'))}  |  {season_label}"),
                 bg="#FFF7ED", fg="#9A3412", font=("Arial", 10, "bold"),
                 anchor="w", padx=10, pady=8
             ).pack(fill="x", padx=20, pady=(0, 5))
@@ -334,11 +336,19 @@ class CustomerPortalPage:
                     "dich_vu": chosen,
                 })
                 dialog.destroy()
+                rates = []
+                for night in created.get("chi_tiet_mua_cao_diem") or []:
+                    if night.get("mua_cao_diem_id") is not None:
+                        rate = str(night.get("he_so_gia", "")).rstrip("0").rstrip(".")
+                        if rate and rate not in rates:
+                            rates.append(rate)
                 messagebox.showinfo(
                     "Đặt phòng thành công",
-                    f"{created.get('message')}\\nMã Booking: {created.get('booking_id')}\\n"
-                    f"Tiền phòng đã chốt: {self._money(created.get('tien_phong_du_kien'))}\\n"
-                    f"Mùa cao điểm: {'Có' if created.get('ap_dung_mua_cao_diem') else 'Không'}\\n"
+                    f"{created.get('message')}\nMã Booking: {created.get('booking_id')}\n"
+                    f"Tiền phòng cơ bản: {self._money(created.get('tien_phong_du_kien'))}\n"
+                    f"Phụ phí mùa cao điểm: {self._money(created.get('tien_phu_phi_mua_cao_diem'))}\n"
+                    f"Tiền phòng + phụ phí: {self._money(created.get('tong_tien_phong_va_phu_phi'))}\n"
+                    f"Hệ số phụ thu: {', '.join('+' + r for r in rates) if rates else 'Không áp dụng'}\n"
                     f"Số dịch vụ đã chọn: {len(created.get('dich_vu', []))}",
                     parent=self.frame
                 )
@@ -356,6 +366,16 @@ class CustomerPortalPage:
             bg=self.GREEN, fg="white", relief="flat", padx=18, pady=9
         ).pack(side="right")
 
+    def _peak_fee_text(self, row):
+        amount = self._money(row.get("tien_phu_phi_mua_cao_diem", 0))
+        factors = []
+        for night in row.get("chi_tiet_mua_cao_diem") or []:
+            if night.get("mua_cao_diem_id") is not None:
+                value = str(night.get("he_so_gia", "")).rstrip("0").rstrip(".")
+                if value and value not in factors:
+                    factors.append(value)
+        return amount + (f" (+{', '.join(factors)})" if factors else "")
+
     def refresh_bookings(self):
         if not hasattr(self, "bookings_tree"):
             return
@@ -372,7 +392,7 @@ class CustomerPortalPage:
                     booking_id, row.get("so_phong"), row.get("loai_phong"), self._date(row.get("ngay_nhan")),
                     self._date(row.get("ngay_tra")), row.get("so_dem"),
                     self._money(row.get("tien_phong_du_kien")),
-                    "CÓ" if row.get("ap_dung_mua_cao_diem") else "KHÔNG",
+                    self._peak_fee_text(row),
                     row.get("trang_thai"), self._money(row.get("da_thanh_toan"))))
         except APIError as exc:
             messagebox.showerror("Lỗi tải Booking", str(exc), parent=self.frame)
@@ -393,18 +413,22 @@ class CustomerPortalPage:
             lines = [f"Booking #{booking_id}", f"Phòng: {detail.get('so_phong')}",
                      f"Trạng thái: {detail.get('trang_thai')}",
                      f"Thời gian: {self._date(detail.get('ngay_nhan'))} - {self._date(detail.get('ngay_tra'))}",
-                     f"Tiền phòng đã chốt: {self._money(detail.get('tien_phong_du_kien'))}",
+                     f"Tiền phòng cơ bản: {self._money(detail.get('tien_phong_du_kien'))}",
+                     f"Phụ phí mùa cao điểm: {self._money(detail.get('tien_phu_phi_mua_cao_diem'))}",
                      f"Áp dụng mùa cao điểm: {'Có' if detail.get('ap_dung_mua_cao_diem') else 'Không'}",
                      "", "CHI TIẾT GIÁ THEO ĐÊM:"]
             lines.extend([
-                f"• {night.get('ngay')}: x{night.get('he_so_gia')} = {self._money(night.get('tien_dem'))}"
+                (f"• {night.get('ngay')}: phòng {self._money(night.get('tien_dem'))}; "
+                 f"phụ thu +{night.get('he_so_gia')} = {self._money(night.get('phi_mua_cao_diem'))}")
                 for night in (detail.get('chi_tiet_mua_cao_diem') or [])
             ] or ["• Không có dữ liệu chi tiết giá theo đêm"])
             lines.extend(["", "DỊCH VỤ:"])
             lines.extend([f"• {s.get('ten')} × {s.get('so_luong')}: {self._money(s.get('thanh_tien'))}" for s in detail.get("dich_vu", [])] or ["• Chưa có dịch vụ phát sinh"])
             lines.extend(["", "THANH TOÁN:"])
             lines.extend([
-                f"• Pay #{p.get('pay_id')} - {p.get('status')} - {self._money(p.get('so_tien'))} | Mùa cao điểm: {'Có' if p.get('ap_dung_mua_cao_diem') else 'Không'}"
+                f"• Pay #{p.get('pay_id')} - {p.get('status')} - {self._money(p.get('so_tien'))} | "
+                f"Phụ phí mùa cao điểm: {self._money(p.get('tien_phu_phi_mua_cao_diem'))} "
+                f"({'Có' if p.get('ap_dung_mua_cao_diem') else 'Không'})"
                 for p in detail.get("thanh_toan", [])
             ] or ["• Chưa có giao dịch"])
             messagebox.showinfo("Chi tiết Booking", "\n".join(lines), parent=self.frame)
@@ -590,8 +614,8 @@ class CustomerPortalPage:
                 self.invoice_rows[invoice_id] = row
                 self.invoices_tree.insert("", "end", iid=str(invoice_id), values=(
                     invoice_id, row.get("booking_id"), row.get("so_phong"), self._money(row.get("tien_phong")),
-                    self._money(row.get("tien_dich_vu")), self._money(row.get("tong_tien")),
-                    "CÓ" if row.get("ap_dung_mua_cao_diem") else "KHÔNG", row.get("method"),
+                    self._peak_fee_text(row),
+                    self._money(row.get("tien_dich_vu")), self._money(row.get("tong_tien")), row.get("method"),
                     row.get("trang_thai_thanh_toan"), self._date(row.get("ngay_lap"))))
         except APIError as exc:
             messagebox.showerror("Lỗi tải hóa đơn", str(exc), parent=self.frame)

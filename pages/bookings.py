@@ -238,6 +238,7 @@ class BookingsPage:
             "checkin",
             "checkout",
             "tien_phong_du_kien",
+            "tien_phu_phi_mua_cao_diem",
             "mua_cao_diem",
             "status"
         )
@@ -256,8 +257,9 @@ class BookingsPage:
             "room": "Số phòng",
             "checkin": "Ngày nhận",
             "checkout": "Ngày trả",
-            "tien_phong_du_kien": "Tiền phòng đã chốt",
-            "mua_cao_diem": "Mùa cao điểm",
+            "tien_phong_du_kien": "Tiền phòng cơ bản",
+            "tien_phu_phi_mua_cao_diem": "Phụ phí cao điểm",
+            "mua_cao_diem": "Hệ số phụ thu",
             "status": "Trạng thái"
         }
 
@@ -268,8 +270,9 @@ class BookingsPage:
             "room": 100,
             "checkin": 120,
             "checkout": 120,
-            "tien_phong_du_kien": 145,
-            "mua_cao_diem": 110,
+            "tien_phong_du_kien": 135,
+            "tien_phu_phi_mua_cao_diem": 135,
+            "mua_cao_diem": 125,
             "status": 145
         }
 
@@ -448,6 +451,14 @@ class BookingsPage:
             )
             self.set_status(str(e), "#C0392B")
 
+    @staticmethod
+    def format_peak_season(record):
+        if not record.get("ap_dung_mua_cao_diem"):
+            return "Không"
+        factors = record.get("he_so_mua_cao_diem") or []
+        factor_text = ", ".join(f"+{value}" for value in factors)
+        return factor_text or "Có"
+
     def display_bookings(self, rows):
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -488,7 +499,8 @@ class BookingsPage:
                     str(checkin)[:10],
                     str(checkout)[:10],
                     self.get_value(row, "tien_phong_du_kien", default=0),
-                    "CÓ" if self.get_value(row, "ap_dung_mua_cao_diem", default=0) else "KHÔNG",
+                    self.get_value(row, "tien_phu_phi_mua_cao_diem", default=0),
+                    self.format_peak_season(row),
                     status
                 )
             )

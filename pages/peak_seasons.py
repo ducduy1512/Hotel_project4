@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
+from decimal import Decimal
 
 from api_client import api_client, APIError
 
@@ -41,7 +42,7 @@ class PeakSeasonsPage:
 
         tk.Label(
             self.parent,
-            text="Quản lý khoảng thời gian và hệ số giá phòng mùa cao điểm",
+            text="Thiết lập phụ phí mùa cao điểm theo tỷ lệ 0,1–0,6 trên giá phòng mỗi đêm",
             font=("Arial", 11),
             fg=self.gray,
             bg=self.background
@@ -163,18 +164,20 @@ class PeakSeasonsPage:
             padx=10, pady=(0, 10)
         )
 
-        # Hệ số giá
+        # Hệ số phụ thu mùa cao điểm
         tk.Label(
             form_frame,
-            text="Hệ số giá",
+            text="Hệ số phụ thu (0.1–0.6)",
             font=("Arial", 10, "bold"),
             fg=self.navy,
             bg=self.white
         ).grid(row=2, column=1, sticky="w", padx=10, pady=7)
 
-        self.factor_entry = tk.Entry(
+        self.factor_entry = ttk.Combobox(
             form_frame,
-            font=("Arial", 10)
+            font=("Arial", 10),
+            state="readonly",
+            values=("0.6", "0.5", "0.4", "0.3", "0.2", "0.1")
         )
         self.factor_entry.grid(
             row=3, column=1, sticky="ew",
@@ -284,7 +287,7 @@ class PeakSeasonsPage:
             "so_phong": "Số phòng",
             "tu_ngay": "Ngày bắt đầu",
             "den_ngay": "Ngày kết thúc",
-            "he_so_gia": "Hệ số giá"
+            "he_so_gia": "Hệ số phụ thu"
         }
 
         widths = {
@@ -402,6 +405,14 @@ class PeakSeasonsPage:
     # ==================================================
     # HIỂN THỊ DỮ LIỆU
     # ==================================================
+    @staticmethod
+    def format_surcharge_rate(value):
+        try:
+            rate = Decimal(str(value)).quantize(Decimal("0.1"))
+            return f"+{rate:.1f}".replace(".", ",")
+        except Exception:
+            return str(value if value is not None else "")
+
     def display_peak_seasons(self, rows):
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -429,7 +440,7 @@ class PeakSeasonsPage:
                     room_number,
                     start_date,
                     end_date,
-                    row.get("he_so_gia", "")
+                    self.format_surcharge_rate(row.get("he_so_gia", ""))
                 )
             )
 
@@ -507,11 +518,11 @@ class PeakSeasonsPage:
             str(season.get("den_ngay", ""))[:10]
         )
 
-        self.factor_entry.delete(0, tk.END)
-        self.factor_entry.insert(
-            0,
-            str(season.get("he_so_gia", ""))
-        )
+        raw_factor = season.get("he_so_gia", "")
+        try:
+            self.factor_entry.set(f"{float(raw_factor):.1f}")
+        except (TypeError, ValueError):
+            self.factor_entry.set(str(raw_factor))
 
     # ==================================================
     # KIỂM TRA DỮ LIỆU
@@ -554,19 +565,21 @@ class PeakSeasonsPage:
                 )
                 return None
 
-            factor_value = float(factor)
-
-            if factor_value <= 1:
+            factor_decimal = Decimal(factor)
+            allowed_factors = {Decimal("0.6"), Decimal("0.5"), Decimal("0.4"),
+                               Decimal("0.3"), Decimal("0.2"), Decimal("0.1")}
+            if factor_decimal not in allowed_factors:
                 messagebox.showwarning(
                     "Hệ số không hợp lệ",
-                    "Hệ số giá mùa cao điểm phải lớn hơn 1."
+                    "Chỉ được chọn một trong các mức phụ thu: 0.6, 0.5, 0.4, 0.3, 0.2 hoặc 0.1."
                 )
                 return None
+            factor_value = float(factor_decimal)
 
         except ValueError:
             messagebox.showwarning(
                 "Dữ liệu không hợp lệ",
-                "Ngày phải theo định dạng YYYY-MM-DD và hệ số giá phải là số hợp lệ."
+                "Ngày phải theo định dạng YYYY-MM-DD và hệ số phụ thu phải thuộc danh sách cho phép."
             )
             return None
 
@@ -699,7 +712,7 @@ class PeakSeasonsPage:
 
         self.start_entry.delete(0, tk.END)
         self.end_entry.delete(0, tk.END)
-        self.factor_entry.delete(0, tk.END)
+        self.factor_entry.set("")
 
         for item in self.tree.selection():
             self.tree.selection_remove(item)
