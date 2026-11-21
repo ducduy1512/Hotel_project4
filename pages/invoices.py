@@ -156,7 +156,6 @@ class InvoicesPage:
             pady=10
         )
 
-        # Đặt Tổng tiền ngay sau cột Phụ phí mùa cao điểm.
         columns = (
             "id",
             "pay_id",
@@ -165,8 +164,8 @@ class InvoicesPage:
             "so_phong",
             "tien_phong",
             "tien_dich_vu",
-            "mua_cao_diem",
             "tong_tien",
+            "mua_cao_diem",
             "ngay_lap"
         )
 
@@ -185,8 +184,8 @@ class InvoicesPage:
             "so_phong": "Số phòng",
             "tien_phong": "Tiền phòng",
             "tien_dich_vu": "Tiền dịch vụ",
-            "mua_cao_diem": "Phụ phí mùa cao điểm",
             "tong_tien": "Tổng tiền",
+            "mua_cao_diem": "Phụ phí mùa cao điểm",
             "ngay_lap": "Ngày lập"
         }
 
@@ -198,8 +197,8 @@ class InvoicesPage:
             "so_phong": 80,
             "tien_phong": 120,
             "tien_dich_vu": 120,
-            "mua_cao_diem": 205,
             "tong_tien": 130,
+            "mua_cao_diem": 205,
             "ngay_lap": 160
         }
 
@@ -556,10 +555,10 @@ class InvoicesPage:
                     self.format_money(
                         invoice.get("tien_dich_vu", 0)
                     ),
-                    self.format_peak_season(invoice),
                     self.format_money(
                         invoice.get("tong_tien", 0)
                     ),
+                    self.format_peak_season(invoice),
                     self.format_date(
                         invoice.get("ngay_lap", "")
                     )

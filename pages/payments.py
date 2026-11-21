@@ -150,14 +150,13 @@ class PaymentsPage:
         table_frame = ttk.Frame(self.frame)
         table_frame.pack(fill="both", expand=True)
 
-        # Đặt Tổng Pay ngay sau cột Phụ phí mùa cao điểm.
         columns = (
             "id",
             "booking_id",
             "ngay_thanh_toan",
+            "so_tien",
             "tien_phong_ap_dung",
             "mua_cao_diem",
-            "so_tien",
             "method",
             "status"
         )
@@ -173,9 +172,9 @@ class PaymentsPage:
             "id": "Payment ID",
             "booking_id": "Booking ID",
             "ngay_thanh_toan": "Ngày thanh toán",
+            "so_tien": "Tổng Pay",
             "tien_phong_ap_dung": "Tiền phòng đã chốt",
             "mua_cao_diem": "Phụ phí mùa cao điểm",
-            "so_tien": "Tổng Pay",
             "method": "Phương thức",
             "status": "Trạng thái"
         }
@@ -184,9 +183,9 @@ class PaymentsPage:
             "id": 90,
             "booking_id": 100,
             "ngay_thanh_toan": 170,
+            "so_tien": 130,
             "tien_phong_ap_dung": 150,
             "mua_cao_diem": 205,
-            "so_tien": 130,
             "method": 130,
             "status": 180
         }
@@ -307,9 +306,9 @@ class PaymentsPage:
                     payment.get("id", payment.get("pay_id", "")),
                     payment.get("booking_id", ""),
                     payment.get("ngay_thanh_toan", ""),
+                    self.format_money(payment.get("so_tien", 0)),
                     self.format_money(payment.get("tien_phong_ap_dung", 0)),
                     self.format_peak_season(payment),
-                    self.format_money(payment.get("so_tien", 0)),
                     payment.get("method", ""),
                     payment.get("status", "")
                 )
@@ -484,10 +483,9 @@ class PaymentsPage:
 
         self.selected_id = int(values[0])
         self.booking_var.set(str(values[1]))
-        # Thứ tự cột mới: ... tiền phòng, phụ phí, tổng Pay, phương thức, trạng thái.
-        self.amount_var.set(str(values[5]))
-        self.method_var.set(values[6])
-        self.status_var.set(values[7])
+        self.amount_var.set(str(values[3]))
+        self.method_var.set(values[4])
+        self.status_var.set(values[5])
 
     def search_payments(self):
         keyword = self.search_var.get().strip()

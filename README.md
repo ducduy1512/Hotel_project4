@@ -1,6 +1,6 @@
 # HOTEL MANAGEMENT SYSTEM
 
-Dự án quản lý khách sạn dùng **MySQL + FastAPI REST API + giao diện Tkinter**. Giao diện hiện tại được giữ nguyên; mọi màn hình quản trị trao đổi dữ liệu với MySQL thông qua HTTP API.
+Dự án quản lý khách sạn dùng **MySQL + FastAPI REST API + giao diện Web HTML5/CSS/JavaScript**. Trình duyệt gọi các endpoint REST hiện có; API tiếp tục chịu trách nhiệm nghiệp vụ và kết nối MySQL. Lớp giao diện được thay mới, không thay đổi cấu trúc SQL, dataset hoặc quy tắc nghiệp vụ.
 
 ## 1. Công nghệ và phiên bản
 
@@ -8,7 +8,7 @@ Dự án quản lý khách sạn dùng **MySQL + FastAPI REST API + giao diện 
 - MySQL Server 8.0.16+ (để thực thi CHECK constraint)
 - MySQL Workbench
 - FastAPI + Uvicorn
-- Tkinter (đi kèm phần lớn bản cài Python trên Windows)
+- HTML5, CSS3 và JavaScript thuần (chạy trên trình duyệt)
 - mysql-connector-python, python-dotenv
 
 ## 2. Cấu trúc dự án
@@ -17,13 +17,15 @@ Dự án quản lý khách sạn dùng **MySQL + FastAPI REST API + giao diện 
 Hotel_project5/
 ├── Hotel_Table.sql          # Tạo database, 8 bảng ERD và 3 bảng hỗ trợ
 ├── Hotel_InsertData.sql     # Dữ liệu mẫu (nạp trước Trigger để giữ lịch sử)
-├── Hotel_Procedures.sql     # 15 Stored Procedures
+├── Hotel_Procedures.sql     # 18 Stored Procedures
 ├── Hotel_Trigger.sql        # 15 Trigger kiểm soát nghiệp vụ
 ├── Hotel_Report.sql         # 10 View phục vụ báo cáo/giao diện
+├── Hotel_Six_Issues_Fix.sql # Đồng bộ 6 lỗi SQL/API cho DB dump hiện hữu
+├── SIX_ISSUES_FIX_README.txt # Hướng dẫn chạy script hòa giải
 ├── Hotel_TestCase.sql       # Kiểm tra đối tượng, toàn vẹn và test âm
 ├── Hotel_Complete.sql       # Bản SQL tổng hợp một file (thay cho 5 file trên)
 ├── .env.example             # Mẫu cấu hình máy cá nhân
-├── app.py                   # Điểm chạy GUI Tkinter
+├── app.py                   # Khởi động FastAPI và mở Web GUI trong trình duyệt
 ├── api_client.py            # HTTP client dùng chung, tự gửi Bearer Token
 ├── database.py              # Cấu hình kết nối MySQL từ .env
 ├── api/                     # FastAPI REST API
@@ -33,8 +35,12 @@ Hotel_project5/
 │   ├── dependencies.py
 │   ├── schemas.py
 │   └── routers/              # auth, customers, rooms, bookings, payments, payment_gateway...
-├── pages/                   # Các màn hình Tkinter
-├── images/                  # Hình ảnh giao diện
+├── frontend/                # Giao diện Web HTML/CSS/JavaScript
+│   ├── index.html
+│   ├── styles.css
+│   └── app.js
+├── pages/                   # Mã GUI Tkinter cũ (không còn là giao diện khởi chạy)
+├── images/                  # Tài nguyên hình ảnh hiện có
 ├── requirements.txt
 └── README.md
 ```
@@ -69,7 +75,7 @@ Giá mùa cao điểm được tính theo từng đêm lưu trú (ngày trả ph
 
 ## 4. Cài đặt SQL bằng MySQL Workbench
 
-**Cách chuẩn – chạy lần lượt 6 file:**
+**Cài mới – chạy lần lượt 6 file SQL:**
 
 1. Mở MySQL Workbench và kết nối MySQL Server.
 2. Mở, chạy toàn bộ `Hotel_Table.sql`.
@@ -79,7 +85,9 @@ Giá mùa cao điểm được tính theo từng đêm lưu trú (ngày trả ph
 6. Chạy `Hotel_Report.sql`.
 7. Chạy `Hotel_TestCase.sql` để kiểm tra kết quả.
 
-Có thể thay bước 2–6 bằng một lần chạy `Hotel_Complete.sql`. **Không chạy `Hotel_Complete.sql` cùng với các file rời**, vì đó là hai cách cài đặt thay thế nhau.
+Có thể thay bước 2–6 bằng một lần chạy `Hotel_Complete.sql`; sau đó chạy `Hotel_TestCase.sql`. **Không chạy `Hotel_Complete.sql` cùng với các file rời**, vì đó là hai cách cài đặt thay thế nhau.
+
+`Hotel_Six_Issues_Fix.sql` không phải file bắt buộc cho cài mới. Đây là script hòa giải dành cho database hiện hữu đã xuất trong `hotel_management_full(2).sql`; cần sao lưu trước khi chạy. Script có cập nhật snapshot mẫu theo Booking #7, #12 và xử lý snapshot rỗng Booking #19, nên không dùng nguyên trạng cho database có bộ dữ liệu khác.
 
 > **CẢNH BÁO DỮ LIỆU:** `Hotel_Table.sql` và `Hotel_Complete.sql` có `DROP DATABASE IF EXISTS hotel_management_erd`. Việc chạy sẽ xóa và tạo lại database này. Hãy sao lưu database đang có trước khi chạy.
 
@@ -89,7 +97,7 @@ Dữ liệu mẫu được nạp trước khi tạo Trigger để không áp cá
 
 - Tables: 11 (8 bảng ERD + `users` + 2 bảng hỗ trợ QR/SePay).
 - Triggers: 15.
-- Stored Procedures: 15.
+- Stored Procedures: 18.
 - Views: 10.
 
 `Hotel_TestCase.sql` trả về số lượng đối tượng và các bộ đếm lỗi quan hệ. Các cột `invalid_count`/`invalid_pair_count` cần bằng 0. Dùng kết quả `SHOW TABLES`, `SHOW TRIGGERS`, `SHOW PROCEDURE STATUS`, và `SHOW FULL TABLES WHERE Table_type = 'VIEW'` để chụp hình minh chứng tương tự bố cục bài tham khảo Retail.
@@ -123,21 +131,17 @@ py -m pip install --upgrade pip
 py -m pip install -r requirements.txt
 ```
 
-Nếu máy đã nhận lệnh `python`, có thể thay `py` bằng `python`. Nếu cả `py` và `python` đều không được nhận diện, hãy cài Python từ python.org, chọn **Add Python to PATH**, sau đó mở lại PyCharm/Terminal. Trên Windows, Tkinter thường được cài kèm Python; nếu `import tkinter` không hoạt động, cài lại Python với thành phần Tcl/Tk được chọn.
+Nếu máy đã nhận lệnh `python`, có thể thay `py` bằng `python`. Nếu cả `py` và `python` đều không được nhận diện, hãy cài Python từ python.org, chọn **Add Python to PATH**, sau đó mở lại PyCharm/Terminal. Giao diện Web chạy trong trình duyệt, không cần cài Tkinter.
 
 ## 7. Chạy dự án trong PyCharm
 
-**Terminal 1 – khởi động API:**
-
-```powershell
-py -m uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-**Terminal 2 – khởi động GUI:**
+**Khởi động ứng dụng (Backend + Web GUI):**
 
 ```powershell
 py app.py
 ```
+
+Ứng dụng sẽ khởi động FastAPI và tự mở trình duyệt tại `http://127.0.0.1:8000/`. Nếu không tự mở, truy cập địa chỉ trên bằng Chrome/Edge. Có thể chạy trực tiếp bằng `py -m uvicorn api.main:app --host 127.0.0.1 --port 8000` nếu không cần tự mở trình duyệt.
 
 Tài liệu API: http://127.0.0.1:8000/docs
 
@@ -145,7 +149,7 @@ API health: http://127.0.0.1:8000/health
 
 Kiểm tra đầy đủ database/object: http://127.0.0.1:8000/health/db
 
-Endpoint `/health/db` chỉ báo OK khi tìm thấy đủ 8 bảng ERD, 3 bảng hỗ trợ (`users`, `payment_qr`, `sepay_webhook_events`), 15 Trigger, 15 Stored Procedure và 10 View.
+Endpoint `/health/db` chỉ báo OK khi tìm thấy đủ 8 bảng ERD, 3 bảng hỗ trợ (`users`, `payment_qr`, `sepay_webhook_events`), 15 Trigger, 18 Stored Procedure và 10 View.
 
 ## 8. Tài khoản và phân quyền
 
@@ -155,7 +159,7 @@ Sau khi chạy SQL mẫu:
 - Password: `Admin@123`
 - Role: `ADMIN`
 
-Đổi mật khẩu quản trị trước khi sử dụng thật. API đăng ký công khai luôn tạo `CUSTOMER`. Khi đăng nhập, ADMIN vào giao diện quản trị hiện tại; CUSTOMER được chuyển sang Cổng khách hàng riêng. Các router quản lý khách, phòng, Booking, dịch vụ, thanh toán, hóa đơn và báo cáo yêu cầu Bearer Token của ADMIN. Router `/api/customer/*` yêu cầu Bearer Token của CUSTOMER và lọc dữ liệu theo hồ sơ khách hàng gắn với tài khoản. API Client của GUI tự đính kèm token sau đăng nhập.
+Đổi mật khẩu quản trị trước khi sử dụng thật. API đăng ký công khai luôn tạo `CUSTOMER`. Khi đăng nhập, ADMIN vào giao diện quản trị Web; CUSTOMER được chuyển sang Cổng khách hàng Web riêng. Các router quản lý khách, phòng, Booking, dịch vụ, thanh toán, hóa đơn và báo cáo yêu cầu Bearer Token của ADMIN. Router `/api/customer/*` yêu cầu Bearer Token của CUSTOMER và lọc dữ liệu theo hồ sơ khách hàng gắn với tài khoản. Frontend lưu Bearer Token trong localStorage của trình duyệt và tự đính kèm token cho các request API cần xác thực.
 
 ## 9. Luồng nghiệp vụ cần kiểm thử
 
@@ -176,7 +180,7 @@ Mã Python đã được kiểm tra cú pháp trong gói bàn giao. SQL cần đ
 
 Ứng dụng có hai không gian làm việc tách biệt theo role:
 
-- `ADMIN`: giữ giao diện quản trị hiện tại.
+- `ADMIN`: giao diện quản trị Web HTML5.
 - `CUSTOMER`: sau khi đăng nhập sẽ mở cổng khách hàng riêng, không nhìn thấy menu quản trị.
 
 Khách hàng có thể tìm phòng trống theo ngày, gửi Booking, xem/hủy Booking của chính mình (theo điều kiện nghiệp vụ), xem chi tiết dịch vụ và hóa đơn, đồng thời tạo yêu cầu thanh toán. API lấy `khach_id` từ Bearer Token; không nhận `khach_id` từ payload khách gửi lên.
@@ -229,7 +233,7 @@ SePay phải gọi được URL từ Internet. Khi chạy demo trên máy cá nh
 
 1. CUSTOMER chọn phương thức `CHUYEN_KHOAN` và gửi yêu cầu thanh toán cho Booking đã được xác nhận.
 2. API gọi Stored Procedure tạo Pay + hóa đơn, tạo mã chuyển khoản HTL duy nhất và trả QR VietQR.
-3. Giao diện hiển thị QR, ngân hàng, số tài khoản, chủ tài khoản, số tiền và nội dung chuyển khoản; tự hỏi API trạng thái mỗi 3 giây.
+3. Giao diện Web hiển thị QR, ngân hàng, số tài khoản, chủ tài khoản, số tiền và nội dung chuyển khoản; khách có thể yêu cầu kiểm tra trạng thái từ giao diện.
 4. Khách quét QR bằng ứng dụng ngân hàng. Không thay đổi số tiền hoặc nội dung chuyển khoản.
 5. SePay POST webhook. API xác minh HMAC/timestamp (hoặc API Key), chống webhook lặp, kiểm tra chiều tiền vào, tài khoản nhận, mã Pay, trạng thái Booking và số tiền hóa đơn.
 6. Chỉ giao dịch khớp chính xác mới UPDATE `pay.status='THANH_CONG'`. Trigger `trg_pay_before_update` tiếp tục kiểm tra hóa đơn và Trigger `trg_pay_after_update` đồng bộ Booking theo quy tắc hiện tại.
@@ -243,14 +247,16 @@ Webhook endpoint công khai (tự xác thực, không dùng Bearer Token): `POST
 
 Nếu database đã có dữ liệu, **không chạy lại** `Hotel_Table.sql` hoặc `Hotel_Complete.sql` vì hai file sẽ DROP và tạo lại database.
 
-Với database từ phiên bản trước đang có các cột snapshot mùa cao điểm (`booking.tien_phong_du_kien`, `booking.chi_tiet_mua_cao_diem`, `pay.tien_phong_ap_dung`), hãy sao lưu trước rồi chạy **một lần** `Hotel_Peak_Surcharge_Migration.sql` trên `hotel_management_erd`. Script sẽ thêm cột phụ phí vào Booking/Pay/HoaDon, chuyển hệ số nhân cũ như `1.20` thành phụ phí `0.20`, cập nhật snapshot và thay Trigger/Stored Procedure/View liên quan. Script giữ nguyên `pay.so_tien`, `hoadon.tong_tien`, trạng thái thanh toán và lịch sử QR.
+Với database khớp chính xác file `hotel_management_full(2).sql` bạn đã gửi, ba cột phụ phí trong `booking`, `pay`, `hoadon` **đã tồn tại**. Vì vậy, sao lưu rồi chạy trực tiếp `Hotel_Six_Issues_Fix.sql` một lần; không chạy lại `Hotel_Peak_Surcharge_Migration.sql` trên database này.
 
-`Hotel_Peak_Season_Migration.sql` là migration của phiên bản cũ dùng để bổ sung snapshot mùa cao điểm ban đầu. Không chạy file cũ này thay cho `Hotel_Peak_Surcharge_Migration.sql` đối với database hiện tại trong gói dự án. Database rất cũ chưa có các cột snapshot cần được nâng cấp qua migration snapshot trước, sau đó mới chạy migration phụ phí mới.
+Nếu là database cũ hơn và chưa có các cột phụ phí, hãy sao lưu và kiểm tra cấu trúc trước: chỉ chạy `Hotel_Peak_Surcharge_Migration.sql` một lần khi các cột đó thực sự chưa tồn tại; sau đó chạy `Hotel_Six_Issues_Fix.sql` nếu cấu trúc/dữ liệu khớp phạm vi script. Migration sẽ thêm cột phụ phí, chuyển hệ số nhân cũ như `1.20` thành tỷ lệ phụ phí `0.20` và giữ nguyên tổng thanh toán/lịch sử QR.
+
+`Hotel_Peak_Season_Migration.sql` là migration của phiên bản cũ dùng để bổ sung snapshot mùa cao điểm ban đầu. Không chạy file này thay cho `Hotel_Peak_Surcharge_Migration.sql` đối với database hiện tại trong gói dự án.
 
 ### Hiển thị và đối soát tiền mùa cao điểm
 
 Admin và Customer đều xem được hệ số phụ thu dưới dạng `+0,6` đến `+0,1` và số tiền phụ phí tách riêng. Chi tiết theo đêm ghi nhận giá phòng cơ bản, hệ số, và tiền phụ phí; hóa đơn/PDF liệt kê riêng tiền phòng, phụ phí mùa cao điểm, tiền dịch vụ và tổng cộng.
 
-Sau khi cài đặt hoặc migration, chạy `Hotel_TestCase.sql`. Các bộ đếm sau phải bằng 0: `INVOICE_TOTAL_MISMATCH`, `PAY_INVOICE_ROOM_SNAPSHOT_MISMATCH`, `PAY_INVOICE_PEAK_FEE_MISMATCH`, `PAY_AMOUNT_INVOICE_TOTAL_MISMATCH`, `BOOKING_PEAK_PRICE_SNAPSHOT_MISSING` và `PAY_SEASON_SNAPSHOT_MISSING`.
+Đối với database hiện hữu khớp với file dump bạn đã gửi, hãy sao lưu rồi chạy `Hotel_Six_Issues_Fix.sql` một lần sau khi nâng cấp cột phụ phí; tiếp theo chạy `Hotel_TestCase.sql`. Với database cài mới bằng `Hotel_Complete.sql` hoặc bộ SQL rời đã đồng bộ, chỉ cần chạy `Hotel_TestCase.sql`, không cần chạy script hòa giải này. Các bộ đếm sau phải bằng 0: `INVOICE_TOTAL_MISMATCH`, `PAY_INVOICE_ROOM_SNAPSHOT_MISMATCH`, `PAY_INVOICE_PEAK_FEE_MISMATCH`, `PAY_AMOUNT_INVOICE_TOTAL_MISMATCH`, `BOOKING_PEAK_PRICE_SNAPSHOT_MISSING` và `PAY_SEASON_SNAPSHOT_MISSING`.
 
 Không tự sửa `tien_phong`, `tien_phu_phi_mua_cao_diem`, `tien_dich_vu`, `tong_tien` trực tiếp trên hóa đơn đã tạo. Trigger kiểm tra từng khoản theo snapshot Pay/Booking và dịch vụ đã chốt để ngăn hóa đơn lệch.
