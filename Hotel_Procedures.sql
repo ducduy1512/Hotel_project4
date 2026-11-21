@@ -8,12 +8,13 @@
 -- 4) Hotel_Trigger.sql
 -- 5) Hotel_Report.sql
 -- 6) Hotel_TestCase.sql
+-- Hotel_Six_Issues_Fix.sql is only for reconciling the uploaded legacy database dump.
 -- MySQL 8.0.16+ is required for enforced CHECK constraints.
 
 USE hotel_management_erd;
 SET NAMES utf8mb4;
 
--- 3. STORED PROCEDURES (15 PROCEDURES)
+-- 3. STORED PROCEDURES (18 PERSISTENT PROCEDURES; backfill helper is temporary)
 -- ============================================================================
 
 -- 3.1 Kiểm tra phòng trống theo khoảng ngày
@@ -131,6 +132,139 @@ BEGIN
 END$$
 DELIMITER ;
 
+
+-- Customer booking with explicit service selection.
+-- p_dich_vu is a JSON array:
+-- [{"dichvu_id": 1, "so_luong": 2}, ...]
+-- IDs must refer to default services of the selected room (booking_id IS NULL).
+-- An empty array means the customer opts out of all default services.
+DROP PROCEDURE IF EXISTS `sp_tao_booking_customer`;
+DELIMITER $$
+CREATE PROCEDURE `sp_tao_booking_customer`(
+    IN p_phong_id INT,
+    IN p_khach_id INT,
+    IN p_ngay_nhan DATE,
+    IN p_ngay_tra DATE,
+    IN p_dich_vu JSON
+)
+BEGIN
+    DECLARE v_dem INT DEFAULT 0;
+    DECLARE v_trang_thai_phong VARCHAR(30) DEFAULT NULL;
+    DECLARE v_booking_id INT DEFAULT NULL;
+    DECLARE v_not_found BOOLEAN DEFAULT FALSE;
+    DECLARE v_selected_count INT DEFAULT 0;
+    DECLARE v_distinct_count INT DEFAULT 0;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_not_found = TRUE;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+
+    IF p_ngay_nhan IS NULL OR p_ngay_tra IS NULL OR p_ngay_tra <= p_ngay_nhan THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Ngay nhan va ngay tra khong hop le';
+    END IF;
+
+    IF p_dich_vu IS NULL OR JSON_TYPE(p_dich_vu) <> 'ARRAY' THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Danh sach dich vu phai la JSON ARRAY';
+    END IF;
+
+    SELECT id INTO v_dem FROM khach WHERE id = p_khach_id FOR SHARE;
+    IF v_dem IS NULL OR v_dem = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Khach hang khong ton tai';
+    END IF;
+
+    SET v_not_found = FALSE;
+    SELECT trang_thai INTO v_trang_thai_phong
+    FROM phong WHERE id = p_phong_id FOR UPDATE;
+
+    IF v_not_found OR v_trang_thai_phong IS NULL OR v_trang_thai_phong = 'BAO_TRI' THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Phong khong ton tai hoac dang bao tri';
+    END IF;
+
+    SELECT COUNT(*) INTO v_dem
+    FROM booking
+    WHERE phong_id = p_phong_id
+      AND trang_thai <> 'DA_HUY'
+      AND p_ngay_nhan < ngay_tra
+      AND p_ngay_tra > ngay_nhan;
+
+    IF v_dem > 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Phong da duoc dat trong khoang thoi gian nay';
+    END IF;
+
+    SELECT COUNT(*), COUNT(DISTINCT x.dichvu_id)
+    INTO v_selected_count, v_distinct_count
+    FROM JSON_TABLE(
+        p_dich_vu, '$[*]' COLUMNS(
+            dichvu_id INT PATH '$.dichvu_id' ERROR ON EMPTY ERROR ON ERROR,
+            so_luong INT PATH '$.so_luong' ERROR ON EMPTY ERROR ON ERROR
+        )
+    ) AS x;
+
+    IF v_selected_count <> v_distinct_count THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Khong duoc chon trung dich vu';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM JSON_TABLE(
+            p_dich_vu, '$[*]' COLUMNS(
+                dichvu_id INT PATH '$.dichvu_id' ERROR ON EMPTY ERROR ON ERROR,
+                so_luong INT PATH '$.so_luong' ERROR ON EMPTY ERROR ON ERROR
+            )
+        ) AS x
+        LEFT JOIN dichvu d
+          ON d.id = x.dichvu_id
+         AND d.phong_id = p_phong_id
+         AND d.booking_id IS NULL
+        WHERE d.id IS NULL OR x.so_luong <= 0
+    ) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Dich vu khong thuoc danh sach mac dinh cua phong hoac so luong khong hop le';
+    END IF;
+
+    INSERT INTO booking (phong_id, khach_id, ngay_nhan, ngay_tra, trang_thai)
+    VALUES (p_phong_id, p_khach_id, p_ngay_nhan, p_ngay_tra, 'CHO_XAC_NHAN');
+
+    SET v_booking_id = LAST_INSERT_ID();
+
+    -- trg_booking_after_insert first copies all room defaults.
+    -- Replace those copies with exactly the customer's selected services.
+    DELETE FROM dichvu WHERE booking_id = v_booking_id;
+
+    INSERT INTO dichvu (ten, don_gia, so_luong, phong_id, booking_id)
+    SELECT d.ten, d.don_gia, x.so_luong, p_phong_id, v_booking_id
+    FROM JSON_TABLE(
+        p_dich_vu, '$[*]' COLUMNS(
+            dichvu_id INT PATH '$.dichvu_id' ERROR ON EMPTY ERROR ON ERROR,
+            so_luong INT PATH '$.so_luong' ERROR ON EMPTY ERROR ON ERROR
+        )
+    ) AS x
+    JOIN dichvu d
+      ON d.id = x.dichvu_id
+     AND d.phong_id = p_phong_id
+     AND d.booking_id IS NULL;
+
+    COMMIT;
+
+    SELECT v_booking_id AS booking_id,
+           p_phong_id AS phong_id,
+           p_khach_id AS khach_id,
+           p_ngay_nhan AS ngay_nhan,
+           p_ngay_tra AS ngay_tra,
+           'CHO_XAC_NHAN' AS trang_thai,
+           v_selected_count AS so_dich_vu_da_chon;
+END$$
+DELIMITER ;
 
 -- 3.3 Hủy booking
 DROP PROCEDURE IF EXISTS `sp_huy_booking`;
@@ -672,6 +806,7 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Booking khong ton tai';
     END IF;
 
+    -- Result set 1: Booking and the immutable room/peak-season snapshot.
     SELECT b.id AS booking_id,
            b.trang_thai AS trang_thai_booking,
            b.ngay_nhan,
@@ -684,13 +819,18 @@ BEGIN
            p.id AS phong_id,
            p.so_phong,
            lp.ten AS loai_phong,
-           lp.gia_co_ban
+           lp.gia_co_ban,
+           b.tien_phong_du_kien,
+           b.tien_phu_phi_mua_cao_diem,
+           b.ap_dung_mua_cao_diem,
+           b.chi_tiet_mua_cao_diem
     FROM booking b
     JOIN khach k ON k.id = b.khach_id
     JOIN phong p ON p.id = b.phong_id
     JOIN loaiphong lp ON lp.id = p.loai_phong_id
     WHERE b.id = p_booking_id;
 
+    -- Result set 2: selected services.
     SELECT d.id AS dichvu_id,
            d.ten,
            d.don_gia,
@@ -700,13 +840,17 @@ BEGIN
     WHERE d.booking_id = p_booking_id
     ORDER BY d.id;
 
+    -- Result set 3: payment and invoice with surcharge kept separate.
     SELECT py.id AS pay_id,
            py.ngay_thanh_toan,
            py.so_tien,
+           py.tien_phong_ap_dung,
+           py.tien_phu_phi_mua_cao_diem AS pay_tien_phu_phi_mua_cao_diem,
            py.method,
            py.status,
            hd.id AS hoadon_id,
            hd.tien_phong,
+           hd.tien_phu_phi_mua_cao_diem AS hoadon_tien_phu_phi_mua_cao_diem,
            hd.tien_dich_vu,
            hd.tong_tien,
            hd.ngay_lap
@@ -716,7 +860,6 @@ BEGIN
     ORDER BY py.id;
 END$$
 DELIMITER ;
-
 
 -- ----------------------------------------------------------------------------
 -- 3.14 Thong ke so phong theo trang thai
@@ -775,10 +918,87 @@ END$$
 DELIMITER ;
 
 
+-- Refund a successful payment through the guarded Pay status transition.
+DROP PROCEDURE IF EXISTS `sp_hoan_tien`;
+DELIMITER $$
+CREATE PROCEDURE `sp_hoan_tien`(IN p_pay_id INT)
+BEGIN
+    DECLARE v_status VARCHAR(30) DEFAULT NULL;
+    DECLARE v_not_found BOOLEAN DEFAULT FALSE;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_not_found = TRUE;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+    SELECT status INTO v_status
+    FROM pay
+    WHERE id = p_pay_id
+    FOR UPDATE;
+
+    IF v_not_found THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Giao dich thanh toan khong ton tai';
+    END IF;
+    IF v_status <> 'THANH_CONG' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Chi hoan tien cho giao dich da THANH_CONG';
+    END IF;
+
+    UPDATE pay SET status = 'HOAN_TIEN' WHERE id = p_pay_id;
+    COMMIT;
+
+    SELECT id AS pay_id, booking_id, so_tien, method,
+           status AS trang_thai_thanh_toan
+    FROM pay WHERE id = p_pay_id;
+END$$
+DELIMITER ;
+
+-- Confirm a pending payment; triggers validate invoice and confirm the Booking.
+DROP PROCEDURE IF EXISTS `sp_xac_nhan_thanh_toan`;
+DELIMITER $$
+CREATE PROCEDURE `sp_xac_nhan_thanh_toan`(IN p_pay_id INT)
+BEGIN
+    DECLARE v_status VARCHAR(30) DEFAULT NULL;
+    DECLARE v_not_found BOOLEAN DEFAULT FALSE;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_not_found = TRUE;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+    SELECT status INTO v_status
+    FROM pay
+    WHERE id = p_pay_id
+    FOR UPDATE;
+
+    IF v_not_found THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Giao dich thanh toan khong ton tai';
+    END IF;
+    IF v_status <> 'CHO_THANH_TOAN' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Chi xac nhan giao dich dang CHO_THANH_TOAN';
+    END IF;
+
+    UPDATE pay SET status = 'THANH_CONG' WHERE id = p_pay_id;
+    COMMIT;
+
+    SELECT py.id AS pay_id, py.booking_id, py.so_tien, py.method,
+           py.status AS trang_thai_thanh_toan,
+           b.trang_thai AS trang_thai_booking,
+           hd.id AS hoadon_id, hd.tong_tien
+    FROM pay py
+    JOIN booking b ON b.id = py.booking_id
+    LEFT JOIN hoadon hd ON hd.pay_id = py.id
+    WHERE py.id = p_pay_id;
+END$$
+DELIMITER ;
+
 -- ============================================================================
 
 -- Backfill the immutable seasonal price snapshot for the seed Booking/Pay rows.
-DELIMITER $$
+-- This helper is called once during fresh setup and is dropped immediately afterwards.
 DELIMITER $$
 DROP PROCEDURE IF EXISTS `sp_backfill_peak_price_snapshots`$$
 CREATE PROCEDURE `sp_backfill_peak_price_snapshots`()

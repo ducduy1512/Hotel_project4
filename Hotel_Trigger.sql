@@ -8,12 +8,30 @@
 -- 4) Hotel_Trigger.sql
 -- 5) Hotel_Report.sql
 -- 6) Hotel_TestCase.sql
+-- Hotel_Six_Issues_Fix.sql is only for reconciling the uploaded legacy database dump.
 -- MySQL 8.0.16+ is required for enforced CHECK constraints.
 
 USE hotel_management_erd;
 SET NAMES utf8mb4;
 
--- 4. TRIGGERS (15 TRIGGERS - REVISED TO PROTECT ERD BUSINESS RULES)
+-- Remove duplicate/obsolete triggers left by the earlier peak-surcharge implementation.
+-- The canonical triggers below protect immutable snapshots and rely on stored procedures
+-- to create Pay + Invoice atomically; no AFTER trigger re-prices settled records.
+DROP TRIGGER IF EXISTS `trg_booking_peak_before_insert`;
+DROP TRIGGER IF EXISTS `trg_booking_peak_before_update`;
+DROP TRIGGER IF EXISTS `trg_dichvu_after_insert`;
+DROP TRIGGER IF EXISTS `trg_dichvu_after_update`;
+DROP TRIGGER IF EXISTS `trg_dichvu_after_delete`;
+DROP TRIGGER IF EXISTS `trg_loaiphong_after_update`;
+DROP TRIGGER IF EXISTS `trg_muacaodiem_after_insert`;
+DROP TRIGGER IF EXISTS `trg_muacaodiem_after_update`;
+DROP TRIGGER IF EXISTS `trg_muacaodiem_after_delete`;
+DROP TRIGGER IF EXISTS `trg_pay_peak_before_insert`;
+DROP TRIGGER IF EXISTS `trg_pay_peak_before_update`;
+DROP TRIGGER IF EXISTS `trg_pay_after_insert`;
+
+
+-- 4. TRIGGERS (15 CANONICAL GUARD TRIGGERS; obsolete surcharge recalc triggers are removed)
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------

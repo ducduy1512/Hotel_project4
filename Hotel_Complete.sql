@@ -2,7 +2,7 @@
 -- HOTEL MANAGEMENT DATABASE - VERSION 2 (ERD ALIGNED)
 -- MySQL 8.0.16+
 -- Schema: hotel_management_erd
--- 8 ERD TABLES + users AUTH TABLE | 15 STORED PROCEDURES | 10 VIEWS | 15 TRIGGERS
+-- 8 ERD TABLES + users AUTH TABLE | 18 STORED PROCEDURES | 10 VIEWS | 15 TRIGGERS
 -- Main ERD relationships:
 --   LoaiPhong 1-N Phong
 --   Phong 1-N Booking; Khach 1-N Booking
@@ -33,7 +33,7 @@
 -- Includes:
 --   - Full DDL (Tables, Primary Keys, Unique Keys, Foreign Keys, Check Constraints)
 --   - Complete, mathematically consistent sample dataset (all statuses covered)
---   - 15 Stored Procedures, 10 Views, 15 Triggers enforcing ERD relationships and business rules
+--   - 18 Stored Procedures, 10 Views, 15 Triggers enforcing ERD relationships and business rules
 -- ============================================================================
 
 DROP DATABASE IF EXISTS `hotel_management_erd`;
@@ -442,7 +442,7 @@ INSERT INTO `hoadon` (`id`, `pay_id`, `tien_phong`, `tien_dich_vu`, `tong_tien`,
 
 -- Luu y: du lieu mau duoc nap truoc khi tao trigger de giu nguyen cac giao dich lich su.
 -- ============================================================================
--- 3. STORED PROCEDURES (15 PROCEDURES)
+-- 3. STORED PROCEDURES (18 PERSISTENT PROCEDURES; backfill helper is temporary)
 -- ============================================================================
 
 -- 3.1 Kiểm tra phòng trống theo khoảng ngày
@@ -1232,6 +1232,7 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Booking khong ton tai';
     END IF;
 
+    -- Result set 1: Booking and the immutable room/peak-season snapshot.
     SELECT b.id AS booking_id,
            b.trang_thai AS trang_thai_booking,
            b.ngay_nhan,
@@ -1244,13 +1245,18 @@ BEGIN
            p.id AS phong_id,
            p.so_phong,
            lp.ten AS loai_phong,
-           lp.gia_co_ban
+           lp.gia_co_ban,
+           b.tien_phong_du_kien,
+           b.tien_phu_phi_mua_cao_diem,
+           b.ap_dung_mua_cao_diem,
+           b.chi_tiet_mua_cao_diem
     FROM booking b
     JOIN khach k ON k.id = b.khach_id
     JOIN phong p ON p.id = b.phong_id
     JOIN loaiphong lp ON lp.id = p.loai_phong_id
     WHERE b.id = p_booking_id;
 
+    -- Result set 2: selected services.
     SELECT d.id AS dichvu_id,
            d.ten,
            d.don_gia,
@@ -1260,13 +1266,17 @@ BEGIN
     WHERE d.booking_id = p_booking_id
     ORDER BY d.id;
 
+    -- Result set 3: payment and invoice with surcharge kept separate.
     SELECT py.id AS pay_id,
            py.ngay_thanh_toan,
            py.so_tien,
+           py.tien_phong_ap_dung,
+           py.tien_phu_phi_mua_cao_diem AS pay_tien_phu_phi_mua_cao_diem,
            py.method,
            py.status,
            hd.id AS hoadon_id,
            hd.tien_phong,
+           hd.tien_phu_phi_mua_cao_diem AS hoadon_tien_phu_phi_mua_cao_diem,
            hd.tien_dich_vu,
            hd.tong_tien,
            hd.ngay_lap
@@ -1276,7 +1286,6 @@ BEGIN
     ORDER BY py.id;
 END$$
 DELIMITER ;
-
 
 -- ----------------------------------------------------------------------------
 -- 3.14 Thong ke so phong theo trang thai
@@ -1337,6 +1346,83 @@ DELIMITER ;
 
 -- Backfill immutable nightly room and peak-surcharge snapshots for seed rows.
 DELIMITER $$
+-- Refund a successful payment through the guarded Pay status transition.
+DROP PROCEDURE IF EXISTS `sp_hoan_tien`;
+DELIMITER $$
+CREATE PROCEDURE `sp_hoan_tien`(IN p_pay_id INT)
+BEGIN
+    DECLARE v_status VARCHAR(30) DEFAULT NULL;
+    DECLARE v_not_found BOOLEAN DEFAULT FALSE;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_not_found = TRUE;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+    SELECT status INTO v_status
+    FROM pay
+    WHERE id = p_pay_id
+    FOR UPDATE;
+
+    IF v_not_found THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Giao dich thanh toan khong ton tai';
+    END IF;
+    IF v_status <> 'THANH_CONG' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Chi hoan tien cho giao dich da THANH_CONG';
+    END IF;
+
+    UPDATE pay SET status = 'HOAN_TIEN' WHERE id = p_pay_id;
+    COMMIT;
+
+    SELECT id AS pay_id, booking_id, so_tien, method,
+           status AS trang_thai_thanh_toan
+    FROM pay WHERE id = p_pay_id;
+END$$
+DELIMITER ;
+
+-- Confirm a pending payment; triggers validate invoice and confirm the Booking.
+DROP PROCEDURE IF EXISTS `sp_xac_nhan_thanh_toan`;
+DELIMITER $$
+CREATE PROCEDURE `sp_xac_nhan_thanh_toan`(IN p_pay_id INT)
+BEGIN
+    DECLARE v_status VARCHAR(30) DEFAULT NULL;
+    DECLARE v_not_found BOOLEAN DEFAULT FALSE;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_not_found = TRUE;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+    SELECT status INTO v_status
+    FROM pay
+    WHERE id = p_pay_id
+    FOR UPDATE;
+
+    IF v_not_found THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Giao dich thanh toan khong ton tai';
+    END IF;
+    IF v_status <> 'CHO_THANH_TOAN' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Chi xac nhan giao dich dang CHO_THANH_TOAN';
+    END IF;
+
+    UPDATE pay SET status = 'THANH_CONG' WHERE id = p_pay_id;
+    COMMIT;
+
+    SELECT py.id AS pay_id, py.booking_id, py.so_tien, py.method,
+           py.status AS trang_thai_thanh_toan,
+           b.trang_thai AS trang_thai_booking,
+           hd.id AS hoadon_id, hd.tong_tien
+    FROM pay py
+    JOIN booking b ON b.id = py.booking_id
+    LEFT JOIN hoadon hd ON hd.pay_id = py.id
+    WHERE py.id = p_pay_id;
+END$$
+DELIMITER ;
+
 DROP PROCEDURE IF EXISTS `sp_backfill_peak_price_snapshots`$$
 CREATE PROCEDURE `sp_backfill_peak_price_snapshots`()
 BEGIN

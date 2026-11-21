@@ -7,7 +7,8 @@
 -- 3) Hotel_Procedures.sql
 -- 4) Hotel_Trigger.sql
 -- 5) Hotel_Report.sql
--- 6) Hotel_TestCase.sql
+-- 6) Hotel_Six_Issues_Fix.sql
+-- 7) Hotel_TestCase.sql
 -- MySQL 8.0.16+ is required for enforced CHECK constraints.
 
 USE hotel_management_erd;
@@ -15,9 +16,9 @@ SET NAMES utf8mb4;
 
 -- HOTEL TEST CASE / OBJECT INVENTORY
 -- Run after: Hotel_Table.sql -> Hotel_InsertData.sql -> Hotel_Procedures.sql
---            -> Hotel_Trigger.sql -> Hotel_Report.sql
+--            -> Hotel_Trigger.sql -> Hotel_Report.sql -> Hotel_Six_Issues_Fix.sql
 
--- A. Object counts: 11 tables (8 ERD + 3 support), 15 procedures, 15 triggers, 10 views.
+-- A. Object counts: 11 tables (8 ERD + 3 support), 18 procedures, 15 triggers, 10 views.
 SELECT 'BASE_TABLES' AS object_type, COUNT(*) AS actual_count, 11 AS expected_count,
        IF(COUNT(*) = 11, 'PASS', 'CHECK') AS result
 FROM information_schema.tables
@@ -29,8 +30,8 @@ FROM information_schema.tables
 WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'
   AND table_name IN ('payment_qr', 'sepay_webhook_events');
 
-SELECT 'STORED_PROCEDURES' AS object_type, COUNT(*) AS actual_count, 15 AS expected_count,
-       IF(COUNT(*) = 15, 'PASS', 'CHECK') AS result
+SELECT 'STORED_PROCEDURES' AS object_type, COUNT(*) AS actual_count, 18 AS expected_count,
+       IF(COUNT(*) = 18, 'PASS', 'CHECK') AS result
 FROM information_schema.routines
 WHERE routine_schema = DATABASE() AND routine_type = 'PROCEDURE';
 

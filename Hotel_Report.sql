@@ -8,6 +8,7 @@
 -- 4) Hotel_Trigger.sql
 -- 5) Hotel_Report.sql
 -- 6) Hotel_TestCase.sql
+-- Hotel_Six_Issues_Fix.sql is only for reconciling the uploaded legacy database dump.
 -- MySQL 8.0.16+ is required for enforced CHECK constraints.
 
 USE hotel_management_erd;

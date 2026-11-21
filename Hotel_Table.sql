@@ -7,14 +7,15 @@
 -- 3) Hotel_Procedures.sql
 -- 4) Hotel_Trigger.sql
 -- 5) Hotel_Report.sql
--- 6) Hotel_TestCase.sql
+-- 6) Hotel_Six_Issues_Fix.sql
+-- 7) Hotel_TestCase.sql
 -- MySQL 8.0.16+ is required for enforced CHECK constraints.
 
 -- ============================================================================
 -- HOTEL MANAGEMENT DATABASE - VERSION 2 (ERD ALIGNED)
 -- MySQL 8.0.16+
 -- Schema: hotel_management_erd
--- 8 ERD TABLES + users AUTH TABLE | 15 STORED PROCEDURES | 10 VIEWS | 15 TRIGGERS
+-- 8 ERD TABLES + users AUTH TABLE | 18 STORED PROCEDURES | 10 VIEWS | 15 TRIGGERS
 -- Main ERD relationships:
 --   LoaiPhong 1-N Phong
 --   Phong 1-N Booking; Khach 1-N Booking
@@ -45,7 +46,7 @@
 -- Includes:
 --   - Full DDL (Tables, Primary Keys, Unique Keys, Foreign Keys, Check Constraints)
 --   - Complete, mathematically consistent sample dataset (all statuses covered)
---   - 15 Stored Procedures, 10 Views, 15 Triggers enforcing ERD relationships and business rules
+--   - 18 Stored Procedures, 10 Views, 15 Triggers enforcing ERD relationships and business rules
 -- ============================================================================
 
 DROP DATABASE IF EXISTS `hotel_management_erd`;
