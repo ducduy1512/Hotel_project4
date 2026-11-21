@@ -1,4 +1,7 @@
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pathlib import Path
 from mysql.connector import Error
 
 from api.database import get_db
@@ -57,12 +60,23 @@ for module in (
     app.include_router(module.router, dependencies=[Depends(require_admin)])
 
 
-@app.get("/")
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+
+
+@app.get("/", include_in_schema=False)
 def home():
+    """Serve the HTML5 web interface; REST endpoints remain unchanged under /api."""
+    return FileResponse(str(FRONTEND_DIR / "index.html"))
+
+
+@app.get("/api-info", include_in_schema=False)
+def api_info():
     return {
         "message": "Hotel Booking Management API is running",
         "database": DATABASE_NAME,
         "docs": "/docs",
+        "frontend": "/",
     }
 
 
@@ -125,8 +139,8 @@ def database_health_check(db=Depends(get_db)):
             problems["missing_support_tables"] = missing_support_tables
         if trigger_count != 15:
             problems["trigger_count"] = {"actual": trigger_count, "expected": 15}
-        if procedure_count != 15:
-            problems["procedure_count"] = {"actual": procedure_count, "expected": 15}
+        if procedure_count != 18:
+            problems["procedure_count"] = {"actual": procedure_count, "expected": 18}
         if view_count != 10:
             problems["view_count"] = {"actual": view_count, "expected": 10}
 
