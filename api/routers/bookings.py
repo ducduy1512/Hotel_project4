@@ -131,6 +131,9 @@ def get_booking(booking_id: int, db=Depends(get_db)):
                 ten,
                 don_gia,
                 so_luong,
+                loai_dichvu,
+                nhom_dich_vu,
+                don_vi_tinh,
                 don_gia * so_luong AS thanh_tien
             FROM dichvu
             WHERE booking_id = %s
@@ -224,6 +227,9 @@ def create_booking(booking: BookingCreateRequest, db=Depends(get_db)):
                 ten,
                 don_gia,
                 so_luong,
+                loai_dichvu,
+                nhom_dich_vu,
+                don_vi_tinh,
                 don_gia * so_luong AS thanh_tien
             FROM dichvu
             WHERE booking_id = %s

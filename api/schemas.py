@@ -90,12 +90,16 @@ class BookingUpdate(BaseModel):
 # =========================================================
 
 class ServiceCreate(BaseModel):
-    # Khớp bảng dichvu: ten VARCHAR(100), don_gia >= 0, so_luong > 0.
+    # MAC_DINH: gắn với phòng và miễn phí; TUY_CHON: danh mục chung hoặc dịch vụ Booking.
     ten: str = Field(min_length=1, max_length=100)
     don_gia: Decimal = Field(ge=0)
     so_luong: int = Field(gt=0)
     phong_id: Optional[int] = Field(default=None, gt=0)
     booking_id: Optional[int] = Field(default=None, gt=0)
+    loai_dichvu: Literal["MAC_DINH", "TUY_CHON"] = "MAC_DINH"
+    nhom_dich_vu: str = Field(default="KHAC", min_length=1, max_length=50)
+    don_vi_tinh: str = Field(default="lần", min_length=1, max_length=40)
+    dang_hoat_dong: bool = True
 
 
 class ServiceUpdate(BaseModel):
@@ -104,6 +108,10 @@ class ServiceUpdate(BaseModel):
     so_luong: int = Field(gt=0)
     phong_id: Optional[int] = Field(default=None, gt=0)
     booking_id: Optional[int] = Field(default=None, gt=0)
+    loai_dichvu: Literal["MAC_DINH", "TUY_CHON"] = "MAC_DINH"
+    nhom_dich_vu: str = Field(default="KHAC", min_length=1, max_length=50)
+    don_vi_tinh: str = Field(default="lần", min_length=1, max_length=40)
+    dang_hoat_dong: bool = True
 
 
 # =========================================================

@@ -60,8 +60,14 @@ for module in (
     app.include_router(module.router, dependencies=[Depends(require_admin)])
 
 
-FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+FRONTEND_DIR = PROJECT_DIR / "frontend"
+IMAGES_DIR = PROJECT_DIR / "images"
+
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+# Room-type photos are stored outside frontend/ in the project-level images/ folder.
+# Expose them at /images/<filename> so the Customer Portal can load them reliably.
+app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="room-images")
 
 
 @app.get("/", include_in_schema=False)

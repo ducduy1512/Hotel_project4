@@ -388,6 +388,13 @@ def get_current_user(
 
         user = cursor.fetchone()
 
+        # MySQL Connector/Python defaults to autocommit=False. The SELECT above
+        # therefore opens a read transaction. FastAPI may reuse this same
+        # get_db() connection for the protected endpoint in the same request.
+        # End the read-only authentication transaction before returning so
+        # endpoints that call db.start_transaction() begin on a clean session.
+        db.rollback()
+
     except Error as exc:
 
         raise HTTPException(

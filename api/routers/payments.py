@@ -39,6 +39,12 @@ def get_payment_by_id(cursor, payment_id: int):
             py.ap_dung_mua_cao_diem,
             py.chi_tiet_mua_cao_diem,
             b.tien_phong_du_kien,
+            GREATEST(
+                COALESCE(py.so_tien, 0)
+                - COALESCE(py.tien_phong_ap_dung, 0)
+                - COALESCE(py.tien_phu_phi_mua_cao_diem, 0),
+                0
+            ) AS tien_dich_vu,
             b.ap_dung_mua_cao_diem AS booking_ap_dung_mua_cao_diem,
             b.phong_id,
             p.so_phong,
@@ -151,6 +157,12 @@ def get_payments(db=Depends(get_db)):
                 py.ap_dung_mua_cao_diem,
                 py.chi_tiet_mua_cao_diem,
                 b.tien_phong_du_kien,
+                GREATEST(
+                COALESCE(py.so_tien, 0)
+                - COALESCE(py.tien_phong_ap_dung, 0)
+                - COALESCE(py.tien_phu_phi_mua_cao_diem, 0),
+                0
+            ) AS tien_dich_vu,
                 b.ap_dung_mua_cao_diem AS booking_ap_dung_mua_cao_diem,
                 b.phong_id,
                 p.so_phong,

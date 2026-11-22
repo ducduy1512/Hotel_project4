@@ -33,6 +33,51 @@ def validate_status(status: str):
         )
 
 
+def copy_room_type_default_services(cursor, target_room_id: int, room_type_id: int):
+    """Copy the most complete sibling-room default set to a new/retyped room.
+
+    Default service rows are stored in dichvu with booking_id IS NULL. Copying
+    them keeps the existing 8-table ERD and makes newly added rooms inherit the
+    service configuration of their room type. Booking snapshots are untouched.
+    """
+    cursor.execute(
+        """
+        SELECT p.id
+        FROM phong AS p
+        LEFT JOIN dichvu AS d
+          ON d.phong_id = p.id AND d.booking_id IS NULL AND d.loai_dichvu = 'MAC_DINH' AND d.dang_hoat_dong = 1
+        WHERE p.loai_phong_id = %s
+          AND p.id <> %s
+        GROUP BY p.id
+        ORDER BY COUNT(d.id) DESC, p.id ASC
+        LIMIT 1
+        """,
+        (room_type_id, target_room_id),
+    )
+    template = cursor.fetchone()
+    if template is None:
+        return 0
+
+    template_room_id = int(template["id"])
+    cursor.execute(
+        """
+        INSERT INTO dichvu
+            (ten, don_gia, so_luong, phong_id, booking_id, loai_dichvu,
+             nhom_dich_vu, don_vi_tinh, dang_hoat_dong)
+        SELECT ten, don_gia, so_luong, %s, NULL, 'MAC_DINH',
+               nhom_dich_vu, don_vi_tinh, 1
+        FROM dichvu
+        WHERE phong_id = %s
+          AND booking_id IS NULL
+          AND loai_dichvu = 'MAC_DINH'
+          AND dang_hoat_dong = 1
+        ORDER BY id
+        """,
+        (target_room_id, template_room_id),
+    )
+    return max(cursor.rowcount, 0)
+
+
 # ==============================
 # GET: DANH SÁCH PHÒNG
 # ==============================
@@ -144,6 +189,11 @@ def create_room(room: RoomCreate, db=Depends(get_db)):
         ))
 
         new_id = cursor.lastrowid
+
+        # Phòng mới kế thừa dịch vụ mặc định đang áp dụng cho loại phòng.
+        # Nếu loại phòng chưa có phòng mẫu hoặc chưa cấu hình dịch vụ thì
+        # không phát sinh dòng dichvu nào.
+        copy_room_type_default_services(cursor, new_id, room.loai_phong_id)
         db.commit()
 
         cursor.execute("""
@@ -210,14 +260,16 @@ def update_room(
 
         # Kiểm tra phòng tồn tại để trả 404 rõ ràng trước khi gọi procedure.
         cursor.execute(
-            "SELECT id FROM phong WHERE id = %s",
+            "SELECT id, loai_phong_id FROM phong WHERE id = %s",
             (room_id,),
         )
-        if cursor.fetchone() is None:
+        current_room = cursor.fetchone()
+        if current_room is None:
             raise HTTPException(
                 status_code=404,
                 detail="Không tìm thấy phòng.",
             )
+        old_room_type_id = int(current_room["loai_phong_id"])
 
         # Kiểm tra loại phòng tồn tại; FK trong Database vẫn là lớp bảo vệ cuối.
         cursor.execute(
@@ -248,6 +300,17 @@ def update_room(
                 cursor.fetchall()
             if not cursor.nextset():
                 break
+
+        # Nếu chuyển phòng sang loại khác, thay dịch vụ mặc định bằng bộ
+        # cấu hình của các phòng cùng loại mới. Các dịch vụ đã gắn Booking
+        # (booking_id IS NOT NULL) không bị xóa hoặc cập nhật.
+        if old_room_type_id != room.loai_phong_id:
+            cursor.execute(
+                "DELETE FROM dichvu WHERE phong_id = %s AND booking_id IS NULL AND loai_dichvu = 'MAC_DINH'",
+                (room_id,),
+            )
+            copy_room_type_default_services(cursor, room_id, room.loai_phong_id)
+            db.commit()
 
         # Đọc lại dữ liệu thật sau khi Stored Procedure đã COMMIT.
         cursor.execute(

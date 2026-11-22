@@ -17,14 +17,14 @@ PAYMENT_METHODS = {"TIEN_MAT", "CHUYEN_KHOAN", "THE"}
 
 class CustomerServiceSelection(BaseModel):
     dichvu_id: int = Field(gt=0)
-    so_luong: int = Field(gt=0)
+    so_luong: int = Field(gt=0, le=99)
 
 
 class CustomerBookingCreate(BaseModel):
     phong_id: int = Field(gt=0)
     ngay_nhan: date
     ngay_tra: date
-    # Danh sách dịch vụ mặc định khách chọn; [] = không lấy dịch vụ nào.
+    # Danh sách dịch vụ mặc định và bổ sung khách chọn; [] = không chọn dịch vụ.
     dich_vu: list[CustomerServiceSelection] = Field(default_factory=list)
 
 
@@ -158,17 +158,115 @@ def customer_profile(current_user=Depends(require_customer)):
     return {"success": True, "user": current_user}
 
 
+@router.get("/room-types")
+def customer_room_types(
+    current_user=Depends(require_customer),
+    db=Depends(get_db),
+):
+    """Return room types, room counts and aggregated default services for Customer cards.
+
+    Default services are rows in dichvu with phong_id set and booking_id IS NULL.
+    The summary is grouped by room type, service name and unit price. The exact
+    service list for an individual room is still loaded by /rooms/{room_id}/services.
+    """
+    cursor = db.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """SELECT lp.id, lp.ten, lp.gia_co_ban, lp.suc_chua,
+                      COUNT(DISTINCT p.id) AS so_phong
+               FROM loaiphong AS lp
+               LEFT JOIN phong AS p ON p.loai_phong_id = lp.id
+               GROUP BY lp.id, lp.ten, lp.gia_co_ban, lp.suc_chua
+               ORDER BY lp.id"""
+        )
+        room_types = cursor.fetchall()
+
+        cursor.execute(
+            """SELECT p.loai_phong_id,
+                      d.ten,
+                      d.don_gia,
+                      COUNT(DISTINCT p.id) AS so_phong_ap_dung,
+                      MIN(d.so_luong) AS so_luong_min,
+                      MAX(d.so_luong) AS so_luong_max,
+                      d.don_vi_tinh,
+                      d.nhom_dich_vu
+               FROM phong AS p
+               INNER JOIN dichvu AS d ON d.phong_id = p.id
+               WHERE d.booking_id IS NULL
+                 AND d.loai_dichvu = 'MAC_DINH'
+              AND d.dang_hoat_dong = 1
+               GROUP BY p.loai_phong_id, d.ten, d.don_gia, d.don_vi_tinh, d.nhom_dich_vu
+               ORDER BY p.loai_phong_id, d.ten, d.don_gia"""
+        )
+        service_rows = cursor.fetchall()
+
+        services_by_type = {}
+        for service in service_rows:
+            type_id = int(service["loai_phong_id"])
+            services_by_type.setdefault(type_id, []).append({
+                "ten": service["ten"],
+                "don_gia": service["don_gia"],
+                "so_phong_ap_dung": int(service["so_phong_ap_dung"] or 0),
+                "so_luong_min": int(service["so_luong_min"] or 0),
+                "so_luong_max": int(service["so_luong_max"] or 0),
+                "don_vi_tinh": service.get("don_vi_tinh") or "phần",
+                "nhom_dich_vu": service.get("nhom_dich_vu") or "DO_DUNG",
+            })
+
+        for room_type in room_types:
+            room_type["id"] = int(room_type["id"])
+            room_type["so_phong"] = int(room_type["so_phong"] or 0)
+            default_services = services_by_type.get(room_type["id"], [])
+            # Giữ hai tên khóa để tương thích với cả giao diện HTML5 hiện tại
+            # và các client cũ đang đọc default_services.
+            room_type["dich_vu_mac_dinh"] = default_services
+            room_type["default_services"] = default_services
+            for service in default_services:
+                service["so_phong_co_dich_vu"] = service["so_phong_ap_dung"]
+
+        return room_types
+    except Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Không tải được danh sách loại phòng: {exc}",
+        ) from exc
+    finally:
+        cursor.close()
+
+
 @router.get("/available-rooms")
 def available_rooms(
     ngay_nhan: date = Query(...),
     ngay_tra: date = Query(...),
+    loai_phong_id: int | None = Query(default=None, gt=0),
     current_user=Depends(require_customer),
     db=Depends(get_db),
 ):
     if ngay_tra <= ngay_nhan:
         raise HTTPException(status_code=422, detail="Ngày trả phải sau ngày nhận.")
+
     cursor = db.cursor(dictionary=True)
     try:
+        room_ids_of_type = None
+        room_type_name = None
+        if loai_phong_id is not None:
+            cursor.execute(
+                "SELECT id, ten FROM loaiphong WHERE id = %s",
+                (loai_phong_id,),
+            )
+            room_type = cursor.fetchone()
+            if room_type is None:
+                raise HTTPException(status_code=404, detail="Loại phòng không tồn tại.")
+            room_type_name = room_type["ten"]
+
+            # Filter on the actual FK value, not the display name returned by a procedure.
+            cursor.execute(
+                "SELECT id FROM phong WHERE loai_phong_id = %s",
+                (loai_phong_id,),
+            )
+            room_ids_of_type = {int(row["id"]) for row in cursor.fetchall()}
+
+        # Preserve the existing Stored Procedure as the source of availability rules.
         cursor.callproc("sp_kiem_tra_phong_trong", [ngay_nhan, ngay_tra])
         rooms = []
         for result_cursor in cursor.stored_results():
@@ -176,6 +274,13 @@ def available_rooms(
                 rooms.extend(result_cursor.fetchall())
             finally:
                 result_cursor.close()
+
+        if room_ids_of_type is not None:
+            rooms = [
+                room for room in rooms
+                if int(room.get("phong_id", room.get("id"))) in room_ids_of_type
+            ]
+
         for room in rooms:
             room_id = int(room.get("phong_id", room.get("id")))
             preview = _room_price_preview(cursor, room_id, ngay_nhan, ngay_tra)
@@ -186,7 +291,17 @@ def available_rooms(
                 "ap_dung_mua_cao_diem": preview["ap_dung_mua_cao_diem"],
                 "chi_tiet_mua_cao_diem": preview["chi_tiet_mua_cao_diem"],
             })
-        return {"ngay_nhan": ngay_nhan, "ngay_tra": ngay_tra, "total": len(rooms), "rooms": rooms}
+
+        return {
+            "ngay_nhan": ngay_nhan,
+            "ngay_tra": ngay_tra,
+            "loai_phong_id": loai_phong_id,
+            "loai_phong": room_type_name,
+            "total": len(rooms),
+            "rooms": rooms,
+        }
+    except HTTPException:
+        raise
     except Error as exc:
         raise HTTPException(status_code=400, detail=f"Không tìm được phòng: {exc}") from exc
     finally:
@@ -223,7 +338,7 @@ def customer_room_services(
     current_user=Depends(require_customer),
     db=Depends(get_db),
 ):
-    """Only expose default services for a room to the signed-in customer."""
+    """Expose active free defaults for the room and active global paid add-ons to the signed-in customer."""
     cursor = db.cursor(dictionary=True)
     try:
         cursor.execute(
@@ -235,15 +350,34 @@ def customer_room_services(
             raise HTTPException(status_code=404, detail="Phòng không tồn tại hoặc đang bảo trì.")
         cursor.execute(
             """
-            SELECT id AS dichvu_id, ten, don_gia, so_luong
+            SELECT id AS dichvu_id, ten, don_gia, so_luong, loai_dichvu,
+                   nhom_dich_vu, don_vi_tinh
             FROM dichvu
             WHERE phong_id = %s AND booking_id IS NULL
+              AND loai_dichvu = 'MAC_DINH' AND dang_hoat_dong = 1
             ORDER BY ten, id
             """,
             (room_id,),
         )
-        services = cursor.fetchall()
-        return {"phong": room, "total": len(services), "services": services}
+        default_services = cursor.fetchall()
+        cursor.execute(
+            """
+            SELECT id AS dichvu_id, ten, don_gia, so_luong, loai_dichvu,
+                   nhom_dich_vu, don_vi_tinh
+            FROM dichvu
+            WHERE phong_id IS NULL AND booking_id IS NULL
+              AND loai_dichvu = 'TUY_CHON' AND dang_hoat_dong = 1
+            ORDER BY nhom_dich_vu, ten, id
+            """
+        )
+        addon_services = cursor.fetchall()
+        return {
+            "phong": room,
+            "total": len(default_services) + len(addon_services),
+            "services": default_services,
+            "default_services": default_services,
+            "addon_services": addon_services,
+        }
     except HTTPException:
         raise
     except Error as exc:
@@ -264,7 +398,7 @@ def create_customer_booking(
     try:
         # Customer ID is taken from the authenticated token, never from request JSON.
         # The stored procedure atomically creates the Booking and stores only the
-        # selected room-default services (including customer-selected quantities).
+        # selected room defaults plus explicitly selected paid add-ons.
         selected_services = [
             {"dichvu_id": item.dichvu_id, "so_luong": item.so_luong}
             for item in data.dich_vu
@@ -287,7 +421,8 @@ def create_customer_booking(
 
         cursor.execute(
             """
-            SELECT id AS dichvu_id, ten, don_gia, so_luong,
+            SELECT id AS dichvu_id, ten, don_gia, so_luong, loai_dichvu,
+                   nhom_dich_vu, don_vi_tinh,
                    don_gia * so_luong AS thanh_tien
             FROM dichvu
             WHERE booking_id = %s
@@ -372,7 +507,7 @@ def my_booking_detail(booking_id: int, current_user=Depends(require_customer), d
         detail = cursor.fetchone()
         detail["chi_tiet_mua_cao_diem"] = _decode_json_field(detail.get("chi_tiet_mua_cao_diem"))
         cursor.execute(
-            "SELECT id AS dichvu_id, ten, don_gia, so_luong, don_gia*so_luong AS thanh_tien FROM dichvu WHERE booking_id=%s ORDER BY id",
+            "SELECT id AS dichvu_id, ten, don_gia, so_luong, loai_dichvu, nhom_dich_vu, don_vi_tinh, don_gia*so_luong AS thanh_tien FROM dichvu WHERE booking_id=%s ORDER BY id",
             (booking_id,),
         )
         detail["dich_vu"] = cursor.fetchall()
