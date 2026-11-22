@@ -7,7 +7,7 @@
 -- 3) Hotel_Procedures.sql
 -- 4) Hotel_Trigger.sql
 -- 5) Hotel_Report.sql
--- 6) Hotel_Six_Issues_Fix.sql
+-- 6) For an existing database only: Hotel_Paid_Service_Catalog_Migration.sql (run once)
 -- 7) Hotel_TestCase.sql
 -- MySQL 8.0.16+ is required for enforced CHECK constraints.
 
@@ -16,7 +16,7 @@ SET NAMES utf8mb4;
 
 -- HOTEL TEST CASE / OBJECT INVENTORY
 -- Run after: Hotel_Table.sql -> Hotel_InsertData.sql -> Hotel_Procedures.sql
---            -> Hotel_Trigger.sql -> Hotel_Report.sql -> Hotel_Six_Issues_Fix.sql
+--            -> Hotel_Trigger.sql -> Hotel_Report.sql -> paid-service migration (existing DB only)
 
 -- A. Object counts: 11 tables (8 ERD + 3 support), 18 procedures, 15 triggers, 10 views.
 SELECT 'BASE_TABLES' AS object_type, COUNT(*) AS actual_count, 11 AS expected_count,
@@ -82,6 +82,29 @@ SELECT 'PAY_HOADON_ONE_TO_ONE' AS test_case,
 SELECT 'DICHVU_BOOKING_ROOM_MISMATCH' AS test_case, COUNT(*) AS invalid_count
 FROM dichvu d JOIN booking b ON b.id = d.booking_id
 WHERE d.phong_id IS NULL OR d.phong_id <> b.phong_id;
+
+SELECT 'PAID_OPTIONAL_CATALOG_COUNT' AS test_case,
+       COUNT(*) AS actual_count,
+       IF(COUNT(*) >= 13, 'PASS', 'CHECK') AS result
+FROM dichvu
+WHERE loai_dichvu = 'TUY_CHON'
+  AND phong_id IS NULL AND booking_id IS NULL;
+
+SELECT 'INVALID_ROOM_DEFAULT_SERVICE' AS test_case, COUNT(*) AS invalid_count
+FROM dichvu
+WHERE booking_id IS NULL AND phong_id IS NOT NULL
+  AND (loai_dichvu <> 'MAC_DINH' OR don_gia <> 0);
+
+SELECT 'INVALID_GLOBAL_PAID_SERVICE' AS test_case, COUNT(*) AS invalid_count
+FROM dichvu
+WHERE booking_id IS NULL AND phong_id IS NULL
+  AND (loai_dichvu <> 'TUY_CHON' OR don_gia <= 0);
+
+SELECT 'INVALID_BOOKING_SERVICE_TYPE_PRICE' AS test_case, COUNT(*) AS invalid_count
+FROM dichvu
+WHERE booking_id IS NOT NULL
+  AND ((loai_dichvu = 'MAC_DINH' AND don_gia <> 0)
+       OR (loai_dichvu = 'TUY_CHON' AND don_gia <= 0));
 
 SELECT 'PAY_CUSTOMER_BOOKING_MISMATCH' AS test_case, COUNT(*) AS invalid_count
 FROM pay py JOIN booking b ON b.id = py.booking_id
@@ -174,7 +197,7 @@ SELECT status, COUNT(*) AS so_giao_dich FROM pay GROUP BY status ORDER BY status
 -- INSERT INTO booking(phong_id, khach_id, ngay_nhan, ngay_tra, trang_thai)
 -- VALUES (1, 2, '2026-12-11', '2026-12-13', 'CHO_XAC_NHAN');
 -- Expected SIGNAL 45000: Booking #1 belongs to Room #1, not Room #2.
--- INSERT INTO dichvu(ten, don_gia, so_luong, phong_id, booking_id)
--- VALUES ('Test mismatch', 10000, 1, 2, 1);
+-- INSERT INTO dichvu(ten, don_gia, so_luong, phong_id, booking_id, loai_dichvu, nhom_dich_vu, don_vi_tinh, dang_hoat_dong)
+-- VALUES ('Test mismatch', 10000, 1, 2, 1, 'TUY_CHON', 'KHAC', 'lần', 1);
 -- Expected SIGNAL 45000: Pay #1 is already successful; illegal state transition.
 -- UPDATE pay SET status = 'THAT_BAI' WHERE id = 1;

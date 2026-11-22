@@ -144,6 +144,47 @@ INSERT INTO `dichvu` (`id`, `ten`, `don_gia`, `so_luong`, `phong_id`, `booking_i
 -- Booking 17 (CHO_XAC_NHAN)
 (46, 'Nuoc suoi mien phi',          0.00, 2, 11, 17);
 
+-- Classify the legacy sample rows before the service validation triggers are installed.
+UPDATE dichvu
+SET loai_dichvu = CASE WHEN don_gia > 0 THEN 'TUY_CHON' ELSE 'MAC_DINH' END,
+    nhom_dich_vu = CASE
+        WHEN LOWER(ten) LIKE '%an sang%' OR LOWER(ten) LIKE '%buffet%' THEN 'AN_SANG'
+        WHEN LOWER(ten) LIKE '%giuong%' THEN 'GIUONG_PHU'
+        WHEN LOWER(ten) LIKE '%giat ui%' THEN 'GIAT_UI'
+        WHEN LOWER(ten) LIKE '%minibar%' THEN 'MINIBAR'
+        WHEN LOWER(ten) LIKE '%xe%' OR LOWER(ten) LIKE '%dua don%' OR LOWER(ten) LIKE '%thue xe%' THEN 'DUA_DON'
+        WHEN LOWER(ten) LIKE '%nuoc suoi%' OR LOWER(ten) LIKE '%tra va ca phe%' THEN 'DO_DUNG'
+        ELSE 'KHAC' END,
+    don_vi_tinh = CASE
+        WHEN LOWER(ten) LIKE '%an sang%' OR LOWER(ten) LIKE '%buffet%' THEN 'suất'
+        WHEN LOWER(ten) LIKE '%giat ui%' THEN 'món'
+        WHEN LOWER(ten) LIKE '%minibar%' THEN 'lần'
+        WHEN LOWER(ten) LIKE '%xe%' OR LOWER(ten) LIKE '%dua don%' OR LOWER(ten) LIKE '%thue xe%' THEN 'chuyến'
+        WHEN LOWER(ten) LIKE '%nuoc suoi%' THEN 'chai'
+        WHEN LOWER(ten) LIKE '%tra va ca phe%' THEN 'phần'
+        ELSE 'lần' END;
+
+-- Part C: Global paid optional-service catalog (not attached to a room or Booking).
+INSERT INTO `dichvu`
+    (`ten`, `don_gia`, `so_luong`, `loai_dichvu`, `nhom_dich_vu`, `don_vi_tinh`, `dang_hoat_dong`, `phong_id`, `booking_id`)
+SELECT seed.ten, seed.don_gia, 1, 'TUY_CHON', seed.nhom_dich_vu, seed.don_vi_tinh, 1, NULL, NULL
+FROM (
+    SELECT 'Ăn sáng buffet' AS ten, 100000.00 AS don_gia, 'AN_SANG' AS nhom_dich_vu, 'suất/buổi' AS don_vi_tinh
+    UNION ALL SELECT 'Giường phụ', 300000.00, 'GIUONG_PHU', 'giường/đêm'
+    UNION ALL SELECT 'Giặt ủi quần áo thường', 25000.00, 'GIAT_UI', 'món'
+    UNION ALL SELECT 'Giặt ủi áo sơ mi', 30000.00, 'GIAT_UI', 'áo'
+    UNION ALL SELECT 'Giặt ủi vest/đầm', 80000.00, 'GIAT_UI', 'bộ'
+    UNION ALL SELECT 'Minibar - Nước ngọt', 25000.00, 'MINIBAR', 'lon'
+    UNION ALL SELECT 'Minibar - Nước trái cây', 35000.00, 'MINIBAR', 'chai'
+    UNION ALL SELECT 'Minibar - Snack', 30000.00, 'MINIBAR', 'gói'
+    UNION ALL SELECT 'Minibar - Chocolate', 45000.00, 'MINIBAR', 'thanh'
+    UNION ALL SELECT 'Đưa đón sân bay một chiều', 650000.00, 'DUA_DON', 'chuyến'
+    UNION ALL SELECT 'Đưa đón sân bay khứ hồi', 1200000.00, 'DUA_DON', 'chuyến'
+    UNION ALL SELECT 'Trang trí sinh nhật cơ bản', 500000.00, 'TRANG_TRI', 'gói'
+    UNION ALL SELECT 'Trang trí kỷ niệm / Honeymoon', 750000.00, 'TRANG_TRI', 'gói'
+) AS seed;
+
+
 -- 2.7 pay (14 payment records; khach_id always matches booking.khach_id)
 INSERT INTO `pay` (`id`, `booking_id`, `khach_id`, `ngay_thanh_toan`, `so_tien`, `method`, `status`) VALUES
 (1,  1,  1,  '2026-11-10 09:00:00', 1180000.00, 'TIEN_MAT',     'THANH_CONG'),

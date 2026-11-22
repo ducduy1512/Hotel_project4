@@ -115,6 +115,9 @@ SELECT d.id AS dichvu_id,
        d.ten AS ten_dich_vu,
        d.don_gia,
        d.so_luong,
+       d.loai_dichvu,
+       d.nhom_dich_vu,
+       d.don_vi_tinh,
        (d.don_gia * d.so_luong) AS thanh_tien
 FROM dichvu d
 JOIN booking b ON b.id = d.booking_id

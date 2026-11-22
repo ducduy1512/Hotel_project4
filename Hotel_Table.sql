@@ -127,13 +127,18 @@ CREATE TABLE `booking` (
 
 -- 1.5 Table: dichvu (DichVu: id, ten, donGia, soLuong)
 -- Relationships:
---   Phong (1) -- [In] -- (N) DichVu   (booking_id IS NULL: default services included with room)
---   Booking (1) -- [Dung] -- (N) DichVu (booking_id IS NOT NULL: services used in booking)
+--   Phong (1) -- [In] -- (N) DichVu (MAC_DINH: free room service)
+--   DichVu catalog: TUY_CHON + phong_id/booking_id NULL (paid global options)
+--   Booking (1) -- [Dung] -- (N) DichVu (Booking snapshots, both service types)
 CREATE TABLE `dichvu` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `ten` VARCHAR(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `don_gia` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   `so_luong` INT NOT NULL DEFAULT 1,
+  `loai_dichvu` ENUM('MAC_DINH','TUY_CHON') NOT NULL DEFAULT 'MAC_DINH',
+  `nhom_dich_vu` VARCHAR(50) NOT NULL DEFAULT 'KHAC',
+  `don_vi_tinh` VARCHAR(40) NOT NULL DEFAULT 'lần',
+  `dang_hoat_dong` TINYINT(1) NOT NULL DEFAULT 1,
   `phong_id` INT DEFAULT NULL,
   `booking_id` INT DEFAULT NULL,
   PRIMARY KEY (`id`),

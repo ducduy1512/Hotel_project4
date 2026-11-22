@@ -160,17 +160,15 @@ AFTER INSERT ON `booking`
 FOR EACH ROW
 BEGIN
     IF NEW.trang_thai <> 'DA_HUY' THEN
-        INSERT INTO dichvu (ten, don_gia, so_luong, phong_id, booking_id)
-        SELECT d.ten, d.don_gia, d.so_luong, NEW.phong_id, NEW.id
+        INSERT INTO dichvu
+            (ten,don_gia,so_luong,phong_id,booking_id,loai_dichvu,nhom_dich_vu,don_vi_tinh,dang_hoat_dong)
+        SELECT d.ten,d.don_gia,d.so_luong,NEW.phong_id,NEW.id,'MAC_DINH',d.nhom_dich_vu,d.don_vi_tinh,1
         FROM dichvu d
-        WHERE d.phong_id = NEW.phong_id
-          AND d.booking_id IS NULL;
+        WHERE d.phong_id=NEW.phong_id AND d.booking_id IS NULL
+          AND d.loai_dichvu='MAC_DINH' AND d.dang_hoat_dong=1 AND d.don_gia=0;
     END IF;
-
-    IF NEW.trang_thai = 'DANG_O' THEN
-        UPDATE phong
-        SET trang_thai = 'DANG_SU_DUNG'
-        WHERE id = NEW.phong_id;
+    IF NEW.trang_thai='DANG_O' THEN
+        UPDATE phong SET trang_thai='DANG_SU_DUNG' WHERE id=NEW.phong_id;
     END IF;
 END$$
 DELIMITER ;
@@ -515,140 +513,73 @@ DELIMITER ;
 -- 7. A Booking service must belong to the same room as its Booking.
 DROP TRIGGER IF EXISTS `trg_dichvu_before_insert`;
 DELIMITER $$
-CREATE TRIGGER `trg_dichvu_before_insert`
-BEFORE INSERT ON `dichvu`
-FOR EACH ROW
+CREATE TRIGGER `trg_dichvu_before_insert` BEFORE INSERT ON `dichvu` FOR EACH ROW
 BEGIN
     DECLARE v_booking_room_id INT DEFAULT NULL;
     DECLARE v_booking_status VARCHAR(30) DEFAULT NULL;
     DECLARE v_has_booking BOOLEAN DEFAULT TRUE;
     DECLARE v_has_invoice INT DEFAULT 0;
-
-    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_has_booking = FALSE;
-
-    IF NEW.ten IS NULL OR TRIM(NEW.ten) = '' THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Ten dich vu khong duoc de trong';
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_has_booking=FALSE;
+    IF NEW.ten IS NULL OR TRIM(NEW.ten)='' OR NEW.don_gia IS NULL OR NEW.don_gia<0
+       OR NEW.so_luong IS NULL OR NEW.so_luong<=0
+       OR NEW.nhom_dich_vu IS NULL OR TRIM(NEW.nhom_dich_vu)=''
+       OR NEW.don_vi_tinh IS NULL OR TRIM(NEW.don_vi_tinh)='' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Thong tin dich vu khong hop le';
     END IF;
-
-    IF NEW.don_gia IS NULL OR NEW.don_gia < 0 THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Don gia dich vu khong duoc am';
-    END IF;
-
-    IF NEW.so_luong IS NULL OR NEW.so_luong <= 0 THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'So luong dich vu phai lon hon 0';
-    END IF;
-
-    IF NEW.booking_id IS NULL THEN
-        IF NEW.phong_id IS NULL THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Dich vu mac dinh phai thuoc mot phong';
+    IF NEW.booking_id IS NULL AND NEW.phong_id IS NULL THEN
+        IF NEW.loai_dichvu<>'TUY_CHON' OR NEW.don_gia<=0 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Danh muc chung phai la dich vu TUY_CHON co gia lon hon 0';
+        END IF;
+    ELSEIF NEW.booking_id IS NULL THEN
+        IF NEW.loai_dichvu<>'MAC_DINH' OR NEW.don_gia<>0 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Dich vu mac dinh cua phong phai co loai MAC_DINH va gia 0';
         END IF;
     ELSE
-        SELECT phong_id, trang_thai
-        INTO v_booking_room_id, v_booking_status
-        FROM booking
-        WHERE id = NEW.booking_id;
-
-        IF NOT v_has_booking THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Booking khong ton tai';
+        SELECT phong_id,trang_thai INTO v_booking_room_id,v_booking_status FROM booking WHERE id=NEW.booking_id;
+        IF NOT v_has_booking THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Booking khong ton tai'; END IF;
+        IF v_booking_status IN ('DA_HUY','HOAN_THANH') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Khong the them dich vu cho Booking da huy/hoan thanh'; END IF;
+        IF (NEW.loai_dichvu='TUY_CHON' AND NEW.don_gia<=0) OR (NEW.loai_dichvu='MAC_DINH' AND NEW.don_gia<>0) THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Gia dich vu khong khop loai dich vu';
         END IF;
-
-        IF v_booking_status IN ('DA_HUY', 'HOAN_THANH') THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Khong the them dich vu cho Booking da huy/hoan thanh';
-        END IF;
-
-        IF NEW.phong_id IS NULL THEN
-            SET NEW.phong_id = v_booking_room_id;
-        ELSEIF NEW.phong_id <> v_booking_room_id THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Phong cua dich vu khong khop voi phong cua Booking';
-        END IF;
-
-        SELECT COUNT(*) INTO v_has_invoice
-        FROM pay py
-        JOIN hoadon hd ON hd.pay_id = py.id
-        WHERE py.booking_id = NEW.booking_id;
-
-        IF v_has_invoice > 0 THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Booking da co hoa don, khong the them dich vu';
-        END IF;
+        IF NEW.phong_id IS NULL THEN SET NEW.phong_id=v_booking_room_id;
+        ELSEIF NEW.phong_id<>v_booking_room_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Phong cua dich vu khong khop voi phong cua Booking'; END IF;
+        SELECT COUNT(*) INTO v_has_invoice FROM pay py JOIN hoadon hd ON hd.pay_id=py.id WHERE py.booking_id=NEW.booking_id;
+        IF v_has_invoice>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Booking da co hoa don, khong the them dich vu'; END IF;
     END IF;
 END$$
 DELIMITER ;
 
 
--- 8. Prevent invalid service reassignment, price changes after invoicing and room mismatch.
 DROP TRIGGER IF EXISTS `trg_dichvu_before_update`;
 DELIMITER $$
-CREATE TRIGGER `trg_dichvu_before_update`
-BEFORE UPDATE ON `dichvu`
-FOR EACH ROW
+CREATE TRIGGER `trg_dichvu_before_update` BEFORE UPDATE ON `dichvu` FOR EACH ROW
 BEGIN
     DECLARE v_booking_room_id INT DEFAULT NULL;
     DECLARE v_booking_status VARCHAR(30) DEFAULT NULL;
     DECLARE v_has_booking BOOLEAN DEFAULT TRUE;
     DECLARE v_has_invoice INT DEFAULT 0;
-
-    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_has_booking = FALSE;
-
-    IF NEW.ten IS NULL OR TRIM(NEW.ten) = '' THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Ten dich vu khong duoc de trong';
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_has_booking=FALSE;
+    IF NEW.ten IS NULL OR TRIM(NEW.ten)='' OR NEW.don_gia IS NULL OR NEW.don_gia<0
+       OR NEW.so_luong IS NULL OR NEW.so_luong<=0
+       OR NEW.nhom_dich_vu IS NULL OR TRIM(NEW.nhom_dich_vu)=''
+       OR NEW.don_vi_tinh IS NULL OR TRIM(NEW.don_vi_tinh)='' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Thong tin dich vu khong hop le';
     END IF;
-
-    IF NEW.don_gia IS NULL OR NEW.don_gia < 0
-       OR NEW.so_luong IS NULL OR NEW.so_luong <= 0 THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Don gia hoac so luong dich vu khong hop le';
-    END IF;
-
-    -- Once used by a Booking, the service cannot be detached or reassigned.
     IF OLD.booking_id IS NOT NULL AND NOT (NEW.booking_id <=> OLD.booking_id) THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Khong duoc tach hoac chuyen dich vu da gan Booking';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Khong duoc tach hoac chuyen dich vu da gan Booking';
     END IF;
-
-    IF NEW.booking_id IS NULL THEN
-        IF NEW.phong_id IS NULL THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Dich vu mac dinh phai thuoc mot phong';
-        END IF;
+    IF NEW.booking_id IS NULL AND NEW.phong_id IS NULL THEN
+        IF NEW.loai_dichvu<>'TUY_CHON' OR NEW.don_gia<=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Danh muc chung phai la dich vu TUY_CHON co gia lon hon 0'; END IF;
+    ELSEIF NEW.booking_id IS NULL THEN
+        IF NEW.loai_dichvu<>'MAC_DINH' OR NEW.don_gia<>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Dich vu mac dinh cua phong phai co loai MAC_DINH va gia 0'; END IF;
     ELSE
-        SELECT phong_id, trang_thai
-        INTO v_booking_room_id, v_booking_status
-        FROM booking
-        WHERE id = NEW.booking_id;
-
-        IF NOT v_has_booking THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Booking khong ton tai';
-        END IF;
-
-        IF v_booking_status IN ('DA_HUY', 'HOAN_THANH') THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Khong duoc sua dich vu cua Booking da huy/hoan thanh';
-        END IF;
-
-        IF NEW.phong_id IS NULL OR NEW.phong_id <> v_booking_room_id THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Phong cua dich vu phai khop voi phong cua Booking';
-        END IF;
-
-        SELECT COUNT(*) INTO v_has_invoice
-        FROM pay py
-        JOIN hoadon hd ON hd.pay_id = py.id
-        WHERE py.booking_id = NEW.booking_id;
-
-        IF v_has_invoice > 0 THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Booking da co hoa don, khong duoc sua dich vu';
-        END IF;
+        SELECT phong_id,trang_thai INTO v_booking_room_id,v_booking_status FROM booking WHERE id=NEW.booking_id;
+        IF NOT v_has_booking THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Booking khong ton tai'; END IF;
+        IF v_booking_status IN ('DA_HUY','HOAN_THANH') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Khong duoc sua dich vu cua Booking da huy/hoan thanh'; END IF;
+        IF (NEW.loai_dichvu='TUY_CHON' AND NEW.don_gia<=0) OR (NEW.loai_dichvu='MAC_DINH' AND NEW.don_gia<>0) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Gia dich vu khong khop loai dich vu'; END IF;
+        IF NEW.phong_id IS NULL OR NEW.phong_id<>v_booking_room_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Phong cua dich vu phai khop voi phong cua Booking'; END IF;
+        SELECT COUNT(*) INTO v_has_invoice FROM pay py JOIN hoadon hd ON hd.pay_id=py.id WHERE py.booking_id=NEW.booking_id;
+        IF v_has_invoice>0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Booking da co hoa don, khong duoc sua dich vu'; END IF;
     END IF;
 END$$
 DELIMITER ;
