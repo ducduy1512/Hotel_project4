@@ -154,9 +154,10 @@ class PaymentsPage:
             "id",
             "booking_id",
             "ngay_thanh_toan",
-            "so_tien",
             "tien_phong_ap_dung",
+            "tien_dich_vu",
             "mua_cao_diem",
+            "so_tien",
             "method",
             "status"
         )
@@ -174,6 +175,7 @@ class PaymentsPage:
             "ngay_thanh_toan": "Ngày thanh toán",
             "so_tien": "Tổng Pay",
             "tien_phong_ap_dung": "Tiền phòng đã chốt",
+            "tien_dich_vu": "Tiền dịch vụ",
             "mua_cao_diem": "Phụ phí mùa cao điểm",
             "method": "Phương thức",
             "status": "Trạng thái"
@@ -185,6 +187,7 @@ class PaymentsPage:
             "ngay_thanh_toan": 170,
             "so_tien": 130,
             "tien_phong_ap_dung": 150,
+            "tien_dich_vu": 130,
             "mua_cao_diem": 205,
             "method": 130,
             "status": 180
@@ -306,9 +309,10 @@ class PaymentsPage:
                     payment.get("id", payment.get("pay_id", "")),
                     payment.get("booking_id", ""),
                     payment.get("ngay_thanh_toan", ""),
-                    self.format_money(payment.get("so_tien", 0)),
                     self.format_money(payment.get("tien_phong_ap_dung", 0)),
+                    self.format_money(payment.get("tien_dich_vu", 0)),
                     self.format_peak_season(payment),
+                    self.format_money(payment.get("so_tien", 0)),
                     payment.get("method", ""),
                     payment.get("status", "")
                 )
@@ -483,9 +487,9 @@ class PaymentsPage:
 
         self.selected_id = int(values[0])
         self.booking_var.set(str(values[1]))
-        self.amount_var.set(str(values[3]))
-        self.method_var.set(values[4])
-        self.status_var.set(values[5])
+        self.amount_var.set(str(values[6]))
+        self.method_var.set(values[7])
+        self.status_var.set(values[8])
 
     def search_payments(self):
         keyword = self.search_var.get().strip()

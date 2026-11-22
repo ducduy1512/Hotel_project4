@@ -20,12 +20,14 @@ Hotel_project5/
 ├── Hotel_Procedures.sql     # 18 Stored Procedures
 ├── Hotel_Trigger.sql        # 15 Trigger kiểm soát nghiệp vụ
 ├── Hotel_Report.sql         # 10 View phục vụ báo cáo/giao diện
+├── Hotel_Paid_Service_Catalog_Migration.sql # Nâng cấp danh mục dịch vụ bổ sung tính phí cho DB hiện hữu
+├── HUONG_DAN_DICH_VU_BO_SUNG_TINH_PHI.md # Danh mục, quy tắc tính số lượng và hướng dẫn migration
 ├── Hotel_Six_Issues_Fix.sql # Đồng bộ 6 lỗi SQL/API cho DB dump hiện hữu
 ├── SIX_ISSUES_FIX_README.txt # Hướng dẫn chạy script hòa giải
 ├── Hotel_TestCase.sql       # Kiểm tra đối tượng, toàn vẹn và test âm
 ├── Hotel_Complete.sql       # Bản SQL tổng hợp một file (thay cho 5 file trên)
 ├── .env.example             # Mẫu cấu hình máy cá nhân
-├── app.py                   # Khởi động FastAPI và mở Web GUI trong trình duyệt
+├── app.py                   # Khởi động FastAPI/Web GUI từ PyCharm
 ├── api_client.py            # HTTP client dùng chung, tự gửi Bearer Token
 ├── database.py              # Cấu hình kết nối MySQL từ .env
 ├── api/                     # FastAPI REST API
@@ -69,9 +71,19 @@ Các bảng `users`, `payment_qr`, `sepay_webhook_events` là bảng bổ trợ 
 - Booking 1–N Pay; Khach 1–N Pay.
 - Pay 1–1 HoaDon (được bảo đảm bằng UNIQUE trên `hoadon.pay_id`).
 
-Trong `dichvu`, dịch vụ mặc định gắn phòng có `booking_id = NULL`; dịch vụ được dùng trong một lần lưu trú có cả `phong_id` và `booking_id`. Trigger kiểm tra hai thông tin phòng phải khớp. Khi tạo Booking, Trigger sao chép dịch vụ mặc định của phòng sang Booking.
+Trong `dichvu`, dịch vụ mặc định miễn phí có `loai_dichvu = 'MAC_DINH'`, gắn `phong_id` và có giá 0; danh mục dịch vụ bổ sung tính phí có `loai_dichvu = 'TUY_CHON'`, `phong_id = NULL`, `booking_id = NULL`; dịch vụ được chọn sẽ được sao chép thành snapshot với `booking_id` và `phong_id` của Booking. Tên, giá, nhóm và đơn vị tính tại thời điểm chọn được giữ trong Booking. Giường phụ lưu số giường-đêm (số giường mỗi đêm × số đêm). Danh mục bị ngừng cung cấp chỉ đặt `dang_hoat_dong = 0`, không xóa các snapshot lịch sử.
 
 Giá mùa cao điểm được tính theo từng đêm lưu trú (ngày trả phòng không tính tiền) như **phụ phí cộng thêm**, không nhân lại tiền phòng. `muacaodiem.he_so_gia` chỉ nhận các mức `0.6`, `0.5`, `0.4`, `0.3`, `0.2`, `0.1`. Phụ phí mỗi đêm = giá phòng cơ bản mỗi đêm × hệ số. `booking` lưu riêng `tien_phong_du_kien` (tiền phòng cơ bản), `tien_phu_phi_mua_cao_diem` và snapshot chi tiết; khi tạo Pay, Trigger sao chép toàn bộ snapshot sang `pay`. Hóa đơn có ba khoản riêng: `tien_phong`, `tien_phu_phi_mua_cao_diem`, `tien_dich_vu`; bắt buộc `tong_tien = tien_phong + tien_phu_phi_mua_cao_diem + tien_dich_vu`. Ví dụ: 1.000.000 + 200.000 (+0.2) + 50.000 = **1.250.000 VNĐ**. Thay đổi cấu hình sau khi Booking đã tạo chỉ ảnh hưởng Booking mới.
+
+
+## Danh mục dịch vụ bổ sung tính phí
+
+- Khi nâng cấp database hiện tại từ dump cũ, hãy sao lưu database rồi chạy **một lần** `Hotel_Paid_Service_Catalog_Migration.sql` trong MySQL Workbench. File này thêm các thuộc tính phân loại vào bảng `dichvu`, chuyển đổi các trigger/Stored Procedure liên quan, và tạo 13 lựa chọn dịch vụ mẫu.
+- Khi cài mới hoàn toàn, chạy `Hotel_Complete.sql` hoặc các file `Hotel_Table.sql`, `Hotel_InsertData.sql`, `Hotel_Procedures.sql`, `Hotel_Trigger.sql`, `Hotel_Report.sql` theo thứ tự hướng dẫn. Không chạy migration sau khi đã dùng schema mới trong `Hotel_Complete.sql`.
+- Admin quản lý danh mục chung tại **Dịch vụ**. Dịch vụ bổ sung không gắn Phòng/Booking; dịch vụ mặc định phải gắn phòng và có giá 0. Ngừng kinh doanh bằng cách đặt trạng thái danh mục thành “Ngừng cung cấp”.
+- Customer chọn dịch vụ bổ sung ở bước đặt phòng. Các lựa chọn có checkbox mặc định bỏ trống. Chỉ dịch vụ đã tích chọn mới vào tổng tiền dịch vụ và hóa đơn.
+- Danh mục mẫu gồm 13 lựa chọn: buffet 100.000đ/suất/buổi; giường phụ 300.000đ/giường-đêm; giặt ủi 25.000đ/món, 30.000đ/áo sơ mi, 80.000đ/bộ vest/đầm; minibar 25.000đ/lon nước ngọt, 35.000đ/chai nước trái cây, 30.000đ/gói snack, 45.000đ/thanh chocolate; đưa đón sân bay 650.000đ/chuyến một chiều hoặc 1.200.000đ/chuyến khứ hồi; trang trí sinh nhật 500.000đ/gói hoặc Honeymoon 750.000đ/gói. Đây là giá demo có thể sửa trong Admin.
+- Với giường phụ, Customer nhập số giường mỗi đêm; Booking lưu số giường-đêm = số giường mỗi đêm × số đêm. Với buffet, số lượng là số suất ăn, không tự nhân theo số đêm.
 
 ## 4. Cài đặt SQL bằng MySQL Workbench
 
@@ -141,7 +153,7 @@ Nếu máy đã nhận lệnh `python`, có thể thay `py` bằng `python`. N�
 py app.py
 ```
 
-Ứng dụng sẽ khởi động FastAPI và tự mở trình duyệt tại `http://127.0.0.1:8000/`. Nếu không tự mở, truy cập địa chỉ trên bằng Chrome/Edge. Có thể chạy trực tiếp bằng `py -m uvicorn api.main:app --host 127.0.0.1 --port 8000` nếu không cần tự mở trình duyệt.
+Ứng dụng sẽ khởi động FastAPI trong cửa sổ Run. Giữ cửa sổ này mở và truy cập `http://127.0.0.1:8000/` bằng Chrome hoặc Edge. Có thể chạy trực tiếp bằng `py -m uvicorn api.main:app --host 127.0.0.1 --port 8000`.
 
 Tài liệu API: http://127.0.0.1:8000/docs
 
@@ -247,16 +259,20 @@ Webhook endpoint công khai (tự xác thực, không dùng Bearer Token): `POST
 
 Nếu database đã có dữ liệu, **không chạy lại** `Hotel_Table.sql` hoặc `Hotel_Complete.sql` vì hai file sẽ DROP và tạo lại database.
 
-Với database khớp chính xác file `hotel_management_full(2).sql` bạn đã gửi, ba cột phụ phí trong `booking`, `pay`, `hoadon` **đã tồn tại**. Vì vậy, sao lưu rồi chạy trực tiếp `Hotel_Six_Issues_Fix.sql` một lần; không chạy lại `Hotel_Peak_Surcharge_Migration.sql` trên database này.
+Với database `hotel_management_erd` được xuất từ file dump `hotel_management_full(1).sql` bạn vừa gửi, hãy sao lưu database trước, sau đó chạy **một lần** `Hotel_Paid_Service_Catalog_Migration.sql`. Migration này chỉ nâng cấp bảng `dichvu`, phân loại các dòng dịch vụ hiện có, thêm 13 mục dịch vụ bổ sung tính phí và cập nhật Trigger/Stored Procedure phục vụ chọn dịch vụ. Không cần import lại dump và không cần chạy `Hotel_Complete.sql`.
 
-Nếu là database cũ hơn và chưa có các cột phụ phí, hãy sao lưu và kiểm tra cấu trúc trước: chỉ chạy `Hotel_Peak_Surcharge_Migration.sql` một lần khi các cột đó thực sự chưa tồn tại; sau đó chạy `Hotel_Six_Issues_Fix.sql` nếu cấu trúc/dữ liệu khớp phạm vi script. Migration sẽ thêm cột phụ phí, chuyển hệ số nhân cũ như `1.20` thành tỷ lệ phụ phí `0.20` và giữ nguyên tổng thanh toán/lịch sử QR.
+Migration có lệnh `ALTER TABLE ADD COLUMN`, vì vậy **không chạy lần thứ hai** trên cùng database. Nếu MySQL báo một trong bốn cột `loai_dichvu`, `nhom_dich_vu`, `don_vi_tinh`, `dang_hoat_dong` đã tồn tại, hãy dừng và kiểm tra schema trước khi chạy tiếp; không xóa cột hoặc chạy lại tùy tiện.
 
-`Hotel_Peak_Season_Migration.sql` là migration của phiên bản cũ dùng để bổ sung snapshot mùa cao điểm ban đầu. Không chạy file này thay cho `Hotel_Peak_Surcharge_Migration.sql` đối với database hiện tại trong gói dự án.
+Với database cài mới hoàn toàn, dùng `Hotel_Complete.sql` hoặc bộ SQL rời theo thứ tự tại mục cài đặt. Các bản cài mới đã có sẵn cấu trúc dịch vụ và 13 mục mẫu, **không chạy migration** trên các bản này.
 
-### Hiển thị và đối soát tiền mùa cao điểm
+Sau khi migration hoàn tất, chạy `Hotel_TestCase.sql`. Các kiểm tra mới gồm sự hiện diện của ít nhất 13 mục danh mục mẫu, cấu trúc hợp lệ của dịch vụ mặc định, danh mục chung và snapshot Booking.
 
-Admin và Customer đều xem được hệ số phụ thu dưới dạng `+0,6` đến `+0,1` và số tiền phụ phí tách riêng. Chi tiết theo đêm ghi nhận giá phòng cơ bản, hệ số, và tiền phụ phí; hóa đơn/PDF liệt kê riêng tiền phòng, phụ phí mùa cao điểm, tiền dịch vụ và tổng cộng.
+### Quy tắc tính tiền dịch vụ
 
-Đối với database hiện hữu khớp với file dump bạn đã gửi, hãy sao lưu rồi chạy `Hotel_Six_Issues_Fix.sql` một lần sau khi nâng cấp cột phụ phí; tiếp theo chạy `Hotel_TestCase.sql`. Với database cài mới bằng `Hotel_Complete.sql` hoặc bộ SQL rời đã đồng bộ, chỉ cần chạy `Hotel_TestCase.sql`, không cần chạy script hòa giải này. Các bộ đếm sau phải bằng 0: `INVOICE_TOTAL_MISMATCH`, `PAY_INVOICE_ROOM_SNAPSHOT_MISMATCH`, `PAY_INVOICE_PEAK_FEE_MISMATCH`, `PAY_AMOUNT_INVOICE_TOTAL_MISMATCH`, `BOOKING_PEAK_PRICE_SNAPSHOT_MISSING` và `PAY_SEASON_SNAPSHOT_MISSING`.
+- Dịch vụ mặc định có giá 0đ và không làm tăng hóa đơn.
+- Dịch vụ bổ sung chỉ được sao chép vào Booking nếu Customer tích chọn.
+- Giá/tên/đơn vị tính được chốt trong bản ghi Booking; thay đổi danh mục không sửa Booking cũ.
+- Giường phụ nhập số giường mỗi đêm, lưu thành giường-đêm = số giường × số đêm. Buffet tính theo số suất/buổi, không tự nhân theo số đêm.
+- Pay và hóa đơn tiếp tục cộng `don_gia * so_luong` từ các dòng dịch vụ của Booking; không thay đổi snapshot tiền phòng và phụ phí mùa cao điểm.
 
 Không tự sửa `tien_phong`, `tien_phu_phi_mua_cao_diem`, `tien_dich_vu`, `tong_tien` trực tiếp trên hóa đơn đã tạo. Trigger kiểm tra từng khoản theo snapshot Pay/Booking và dịch vụ đã chốt để ngăn hóa đơn lệch.

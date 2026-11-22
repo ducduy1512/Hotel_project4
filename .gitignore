@@ -1,16 +1,18 @@
-
-# Python cache
+﻿# Python cache
+__pycache__/
+*.py[cod]
 
 # Virtual environments
+.venv/
+venv/
 env/
 
-# PyCharm temporary files
+# PyCharm / IDE
+.idea/
 
-# Test and log files
+# Test, logs & sensitive files
 .pytest_cache/
 *.log
-
-# OS files
 .DS_Store
 Thumbs.db
 session.json
@@ -18,8 +20,3 @@ session.json
 .env
 .env.*
 !.env.example
-.venv/
-venv/
-__pycache__/
-*.py[cod]
-.idea/

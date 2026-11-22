@@ -20,7 +20,8 @@
 - `frontend/styles.css`: giao diện responsive.
 - `frontend/app.js`: đăng nhập/đăng ký, điều hướng, biểu mẫu và gọi API.
 - `api/main.py`: phục vụ trang HTML tại `/` và static files tại `/static`; các router REST `/api/*` không đổi.
-- `app.py`: khởi chạy Uvicorn và mở trình duyệt.
+- Ảnh loại phòng nằm trong `images/` ở thư mục gốc dự án và được phục vụ tại `/images/<ten-anh>.jpg` (Standard, Deluxe, VIP, Family).
+- `app.py`: khởi chạy Uvicorn; mở `http://127.0.0.1:8000/` trong Chrome hoặc Edge.
 
 ## Những phần không thay đổi
 
