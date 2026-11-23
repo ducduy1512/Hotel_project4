@@ -40,7 +40,7 @@
 --   3. khach      (id, ho_ten, cccd, sdt)
 --   4. booking    (base room snapshot + independent peak-season surcharge)
 --   5. dichvu     (id, ten, don_gia, so_luong, phong_id, booking_id)
---   6. muacaodiem (id, phong_id, tu_ngay, den_ngay, he_so_gia)
+--   6. muacaodiem (id, tu_ngay, den_ngay) + phong_muacaodiem (phong_id, muacaodiem_id, he_so_phu_thu)
 --   7. pay        (id, booking_id, khach_id, ngay_thanh_toan, so_tien, method, status)
 --   8. hoadon     (id, pay_id, tien_phong, tien_phu_phi_mua_cao_diem, tien_dich_vu, tong_tien, ngay_lap)
 -- Includes:
@@ -151,19 +151,26 @@ CREATE TABLE `dichvu` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
--- 1.6 Table: muacaodiem (MuaCaoDiem: id, tuNgay, denNgay, heSoGia)
--- Relationship: Phong (1) -- [Ap dung] -- (N) MuaCaoDiem
+-- 1.6 Tables: MUACAODIEM and PHONG_MUACAODIEM
+-- Relationship: PHONG (N) -- (N) MUACAODIEM through PHONG_MUACAODIEM
 CREATE TABLE `muacaodiem` (
   `id` INT NOT NULL AUTO_INCREMENT,
-  `phong_id` INT NOT NULL,
   `tu_ngay` DATE NOT NULL,
   `den_ngay` DATE NOT NULL,
-  `he_so_gia` DECIMAL(4,2) NOT NULL,
   PRIMARY KEY (`id`),
-  KEY `fk_muacaodiem_phong` (`phong_id`),
-  CONSTRAINT `fk_muacaodiem_phong` FOREIGN KEY (`phong_id`) REFERENCES `phong` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT `chk_he_so_gia` CHECK (`he_so_gia` IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60)),
   CONSTRAINT `chk_ngay_caodiem` CHECK (`den_ngay` >= `tu_ngay`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Junction table: one season can apply to many rooms; each room can have many seasons.
+CREATE TABLE `phong_muacaodiem` (
+  `phong_id` INT NOT NULL,
+  `muacaodiem_id` INT NOT NULL,
+  `he_so_phu_thu` DECIMAL(4,2) NOT NULL,
+  PRIMARY KEY (`phong_id`, `muacaodiem_id`),
+  KEY `idx_phong_muacaodiem_season` (`muacaodiem_id`),
+  CONSTRAINT `fk_pmd_phong` FOREIGN KEY (`phong_id`) REFERENCES `phong` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_pmd_muacaodiem` FOREIGN KEY (`muacaodiem_id`) REFERENCES `muacaodiem` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `chk_pmd_he_so` CHECK (`he_so_phu_thu` IN (0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50, 0.60))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 

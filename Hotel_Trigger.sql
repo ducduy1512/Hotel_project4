@@ -106,10 +106,11 @@ BEGIN
     WHILE v_ngay < NEW.ngay_tra DO
         SET v_mua_id = NULL;
         SET v_he_so = 0.00;
-        SELECT MAX(m.id), COALESCE(MAX(m.he_so_gia), 0.00)
+        SELECT MAX(m.id), COALESCE(MAX(pm.he_so_phu_thu), 0.00)
         INTO v_mua_id, v_he_so
         FROM muacaodiem m
-        WHERE m.phong_id = NEW.phong_id
+        JOIN phong_muacaodiem pm ON pm.muacaodiem_id = m.id
+        WHERE pm.phong_id = NEW.phong_id
           AND v_ngay BETWEEN m.tu_ngay AND m.den_ngay;
         IF v_mua_id IS NOT NULL THEN SET v_co_mua_cao_diem = 1; END IF;
         SET v_tien_phong = v_tien_phong + v_gia_co_ban;
@@ -341,10 +342,11 @@ BEGIN
         WHILE v_ngay < NEW.ngay_tra DO
             SET v_mua_id = NULL;
             SET v_he_so = 0.00;
-            SELECT MAX(m.id), COALESCE(MAX(m.he_so_gia), 0.00)
+            SELECT MAX(m.id), COALESCE(MAX(pm.he_so_phu_thu), 0.00)
             INTO v_mua_id, v_he_so
             FROM muacaodiem m
-            WHERE m.phong_id = NEW.phong_id
+            JOIN phong_muacaodiem pm ON pm.muacaodiem_id = m.id
+            WHERE pm.phong_id = NEW.phong_id
               AND v_ngay BETWEEN m.tu_ngay AND m.den_ngay;
             IF v_mua_id IS NOT NULL THEN SET v_co_mua_cao_diem = 1; END IF;
             SET v_tien_phong = v_tien_phong + v_gia_co_ban;
@@ -417,94 +419,86 @@ DELIMITER ;
 -- GROUP B: PEAK-SEASON CONFIGURATION
 -- ----------------------------------------------------------------------------
 
--- 5. Validate peak-season INSERT and prevent overlapping periods for the same room.
+-- 5. Validate shared peak-season date ranges and room-specific junction rates.
 DROP TRIGGER IF EXISTS `trg_muacaodiem_before_insert`;
+DROP TRIGGER IF EXISTS `trg_muacaodiem_before_update`;
+DROP TRIGGER IF EXISTS `trg_phong_muacaodiem_before_insert`;
+DROP TRIGGER IF EXISTS `trg_phong_muacaodiem_before_update`;
 DELIMITER $$
 CREATE TRIGGER `trg_muacaodiem_before_insert`
 BEFORE INSERT ON `muacaodiem`
 FOR EACH ROW
 BEGIN
-    DECLARE v_room_id INT DEFAULT NULL;
-    DECLARE v_dem INT DEFAULT 0;
-
     IF NEW.tu_ngay IS NULL OR NEW.den_ngay IS NULL OR NEW.den_ngay < NEW.tu_ngay THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Khoang ngay mua cao diem khong hop le';
-    END IF;
-
-    IF NEW.he_so_gia IS NULL OR NEW.he_so_gia NOT IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60) THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'He so phu thu phai la 0.1, 0.2, 0.3, 0.4, 0.5 hoac 0.6';
-    END IF;
-
-    SELECT id INTO v_room_id
-    FROM phong
-    WHERE id = NEW.phong_id
-    FOR UPDATE;
-
-    IF v_room_id IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Phong ap dung mua cao diem khong ton tai';
-    END IF;
-
-    SELECT COUNT(*) INTO v_dem
-    FROM muacaodiem
-    WHERE phong_id = NEW.phong_id
-      AND NEW.tu_ngay <= den_ngay
-      AND NEW.den_ngay >= tu_ngay;
-
-    IF v_dem > 0 THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Khoang ngay mua cao diem bi trung lap voi cau hinh da co';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Khoang ngay mua cao diem khong hop le';
     END IF;
 END$$
-DELIMITER ;
 
-
--- 6. Validate peak-season UPDATE and exclude the current row from overlap checks.
-DROP TRIGGER IF EXISTS `trg_muacaodiem_before_update`;
-DELIMITER $$
 CREATE TRIGGER `trg_muacaodiem_before_update`
 BEFORE UPDATE ON `muacaodiem`
 FOR EACH ROW
 BEGIN
-    DECLARE v_room_id INT DEFAULT NULL;
-    DECLARE v_dem INT DEFAULT 0;
-
+    DECLARE v_conflict INT DEFAULT 0;
     IF NEW.tu_ngay IS NULL OR NEW.den_ngay IS NULL OR NEW.den_ngay < NEW.tu_ngay THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Khoang ngay mua cao diem khong hop le';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Khoang ngay mua cao diem khong hop le';
     END IF;
-
-    IF NEW.he_so_gia IS NULL OR NEW.he_so_gia NOT IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60) THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'He so phu thu phai la 0.1, 0.2, 0.3, 0.4, 0.5 hoac 0.6';
+    SELECT COUNT(*) INTO v_conflict
+    FROM phong_muacaodiem current_link
+    JOIN phong_muacaodiem other_link ON other_link.phong_id = current_link.phong_id
+    JOIN muacaodiem other_season ON other_season.id = other_link.muacaodiem_id
+    WHERE current_link.muacaodiem_id = OLD.id
+      AND other_season.id <> OLD.id
+      AND NEW.tu_ngay <= other_season.den_ngay
+      AND NEW.den_ngay >= other_season.tu_ngay;
+    IF v_conflict > 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Khoang ngay moi bi trung voi mua cao diem khac cua mot phong da lien ket';
     END IF;
+END$$
 
-    SELECT id INTO v_room_id
-    FROM phong
-    WHERE id = NEW.phong_id
-    FOR UPDATE;
-
-    IF v_room_id IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Phong ap dung mua cao diem khong ton tai';
+CREATE TRIGGER `trg_phong_muacaodiem_before_insert`
+BEFORE INSERT ON `phong_muacaodiem`
+FOR EACH ROW
+BEGIN
+    DECLARE v_start DATE DEFAULT NULL;
+    DECLARE v_end DATE DEFAULT NULL;
+    DECLARE v_conflict INT DEFAULT 0;
+    IF NEW.he_so_phu_thu IS NULL OR NEW.he_so_phu_thu NOT IN (0.10,0.20,0.25,0.30,0.35,0.40,0.50,0.60) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Ty le phu thu khong hop le';
     END IF;
+    SELECT tu_ngay, den_ngay INTO v_start, v_end FROM muacaodiem WHERE id=NEW.muacaodiem_id;
+    IF v_start IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Mua cao diem khong ton tai';
+    END IF;
+    SELECT COUNT(*) INTO v_conflict
+    FROM phong_muacaodiem pm JOIN muacaodiem m ON m.id=pm.muacaodiem_id
+    WHERE pm.phong_id=NEW.phong_id
+      AND m.tu_ngay <= v_end AND m.den_ngay >= v_start;
+    IF v_conflict > 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Phong da co mua cao diem trung khoang ngay';
+    END IF;
+END$$
 
-    SELECT COUNT(*) INTO v_dem
-    FROM muacaodiem
-    WHERE phong_id = NEW.phong_id
-      AND id <> OLD.id
-      AND NEW.tu_ngay <= den_ngay
-      AND NEW.den_ngay >= tu_ngay;
-
-    IF v_dem > 0 THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Cap nhat that bai: khoang ngay mua cao diem bi trung lap';
+CREATE TRIGGER `trg_phong_muacaodiem_before_update`
+BEFORE UPDATE ON `phong_muacaodiem`
+FOR EACH ROW
+BEGIN
+    DECLARE v_start DATE DEFAULT NULL;
+    DECLARE v_end DATE DEFAULT NULL;
+    DECLARE v_conflict INT DEFAULT 0;
+    IF NEW.he_so_phu_thu IS NULL OR NEW.he_so_phu_thu NOT IN (0.10,0.20,0.25,0.30,0.35,0.40,0.50,0.60) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Ty le phu thu khong hop le';
+    END IF;
+    SELECT tu_ngay, den_ngay INTO v_start, v_end FROM muacaodiem WHERE id=NEW.muacaodiem_id;
+    SELECT COUNT(*) INTO v_conflict
+    FROM phong_muacaodiem pm JOIN muacaodiem m ON m.id=pm.muacaodiem_id
+    WHERE pm.phong_id=NEW.phong_id
+      AND NOT (pm.phong_id=OLD.phong_id AND pm.muacaodiem_id=OLD.muacaodiem_id)
+      AND m.tu_ngay <= v_end AND m.den_ngay >= v_start;
+    IF v_conflict > 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Phong da co mua cao diem trung khoang ngay';
     END IF;
 END$$
 DELIMITER ;
-
 
 -- ----------------------------------------------------------------------------
 -- GROUP C: SERVICES

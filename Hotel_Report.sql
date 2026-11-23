@@ -215,11 +215,12 @@ SELECT m.id AS mua_cao_diem_id,
        m.tu_ngay,
        m.den_ngay,
        DATEDIFF(m.den_ngay, m.tu_ngay) + 1 AS so_ngay_ap_dung,
-       m.he_so_gia,
+       pm.he_so_phu_thu AS he_so_gia,
        lp.gia_co_ban,
-       ROUND(lp.gia_co_ban * m.he_so_gia, 2) AS phu_phi_mua_cao_diem_moi_dem
+       ROUND(lp.gia_co_ban * pm.he_so_phu_thu, 2) AS phu_phi_mua_cao_diem_moi_dem
 FROM muacaodiem m
-JOIN phong p ON p.id = m.phong_id
+JOIN phong_muacaodiem pm ON pm.muacaodiem_id = m.id
+JOIN phong p ON p.id = pm.phong_id
 JOIN loaiphong lp ON lp.id = p.loai_phong_id;
 
 

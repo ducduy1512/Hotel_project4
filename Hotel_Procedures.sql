@@ -965,10 +965,11 @@ BEGIN
         SET v_flag=0; SET v_detail=JSON_ARRAY();
         WHILE v_day < v_end DO
             SET v_season_id=NULL; SET v_factor=0.00;
-            SELECT MAX(id), COALESCE(MAX(he_so_gia),0.00)
+            SELECT MAX(m.id), COALESCE(MAX(pm.he_so_phu_thu),0.00)
             INTO v_season_id, v_factor
-            FROM muacaodiem
-            WHERE phong_id=v_room_id AND v_day BETWEEN tu_ngay AND den_ngay;
+            FROM muacaodiem m
+            JOIN phong_muacaodiem pm ON pm.muacaodiem_id=m.id
+            WHERE pm.phong_id=v_room_id AND v_day BETWEEN m.tu_ngay AND m.den_ngay;
             IF v_season_id IS NOT NULL THEN SET v_flag=1; END IF;
             SET v_room_total=v_room_total+v_rate;
             SET v_peak_fee=v_peak_fee+ROUND(v_rate*v_factor,2);

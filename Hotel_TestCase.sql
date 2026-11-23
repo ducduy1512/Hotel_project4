@@ -120,8 +120,26 @@ WHERE chi_tiet_mua_cao_diem IS NULL
    OR JSON_TYPE(chi_tiet_mua_cao_diem) <> 'ARRAY';
 
 SELECT 'PEAK_SEASON_RATE_INVALID' AS test_case, COUNT(*) AS invalid_count
-FROM muacaodiem
-WHERE he_so_gia NOT IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60);
+FROM phong_muacaodiem
+WHERE he_so_phu_thu NOT IN (0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50, 0.60);
+
+-- Physical-room / room-type surcharge audit for every configured season.
+SELECT p.so_phong, lp.ten AS loai_phong, m.tu_ngay, m.den_ngay,
+       CONCAT(ROUND(pm.he_so_phu_thu * 100), '%') AS phu_thu
+FROM phong p
+JOIN loaiphong lp ON lp.id = p.loai_phong_id
+JOIN phong_muacaodiem pm ON pm.phong_id = p.id
+JOIN muacaodiem m ON m.id = pm.muacaodiem_id
+ORDER BY m.tu_ngay, p.so_phong;
+
+-- Physical-room / room-type surcharge audit for every configured season.
+SELECT p.so_phong, lp.ten AS loai_phong, m.tu_ngay, m.den_ngay,
+       CONCAT(ROUND(pm.he_so_phu_thu * 100), '%') AS phu_thu
+FROM phong p
+JOIN loaiphong lp ON lp.id = p.loai_phong_id
+JOIN phong_muacaodiem pm ON pm.phong_id = p.id
+JOIN muacaodiem m ON m.id = pm.muacaodiem_id
+ORDER BY m.tu_ngay, p.so_phong;
 
 SELECT 'BOOKING_ROOM_BASE_SNAPSHOT_MISMATCH' AS test_case, COUNT(*) AS invalid_count
 FROM booking b
@@ -181,7 +199,9 @@ WHERE a.trang_thai <> 'DA_HUY' AND b.trang_thai <> 'DA_HUY'
   AND a.ngay_nhan < b.ngay_tra AND a.ngay_tra > b.ngay_nhan;
 
 SELECT 'OVERLAPPING_PEAK_SEASONS' AS test_case, COUNT(*) AS invalid_pair_count
-FROM muacaodiem a JOIN muacaodiem b ON b.phong_id = a.phong_id AND a.id < b.id
+FROM phong_muacaodiem pa JOIN muacaodiem a ON a.id=pa.muacaodiem_id
+JOIN phong_muacaodiem pb ON pb.phong_id=pa.phong_id AND pb.muacaodiem_id>pa.muacaodiem_id
+JOIN muacaodiem b ON b.id=pb.muacaodiem_id
 WHERE a.tu_ngay <= b.den_ngay AND a.den_ngay >= b.tu_ngay;
 
 -- C. Object inventory and summaries: these are convenient for screenshots in the report.

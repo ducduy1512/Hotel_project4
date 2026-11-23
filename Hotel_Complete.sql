@@ -27,7 +27,7 @@
 --   3. khach      (id, ho_ten, cccd, sdt)
 --   4. booking    (id, phong_id, khach_id, ngay_nhan, ngay_tra, trang_thai)
 --   5. dichvu     (id, ten, don_gia, so_luong, phong_id, booking_id)
---   6. muacaodiem (id, phong_id, tu_ngay, den_ngay, he_so_gia)
+--   6. muacaodiem (id, tu_ngay, den_ngay) + phong_muacaodiem (phong_id, muacaodiem_id, he_so_phu_thu)
 --   7. pay        (id, booking_id, khach_id, ngay_thanh_toan, so_tien, method, status)
 --   8. hoadon     (id, pay_id, tien_phong, tien_phu_phi_mua_cao_diem, tien_dich_vu, tong_tien, ngay_lap)
 -- Includes:
@@ -138,19 +138,26 @@ CREATE TABLE `dichvu` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
--- 1.6 Table: muacaodiem (MuaCaoDiem: id, tuNgay, denNgay, heSoGia)
--- Relationship: Phong (1) -- [Ap dung] -- (N) MuaCaoDiem
+-- 1.6 Tables: MUACAODIEM and PHONG_MUACAODIEM
+-- Relationship: PHONG (N) -- (N) MUACAODIEM through PHONG_MUACAODIEM
 CREATE TABLE `muacaodiem` (
   `id` INT NOT NULL AUTO_INCREMENT,
-  `phong_id` INT NOT NULL,
   `tu_ngay` DATE NOT NULL,
   `den_ngay` DATE NOT NULL,
-  `he_so_gia` DECIMAL(4,2) NOT NULL,
   PRIMARY KEY (`id`),
-  KEY `fk_muacaodiem_phong` (`phong_id`),
-  CONSTRAINT `fk_muacaodiem_phong` FOREIGN KEY (`phong_id`) REFERENCES `phong` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT `chk_he_so_gia` CHECK (`he_so_gia` IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60)),
   CONSTRAINT `chk_ngay_caodiem` CHECK (`den_ngay` >= `tu_ngay`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Junction table: one season can apply to many rooms; each room can have many seasons.
+CREATE TABLE `phong_muacaodiem` (
+  `phong_id` INT NOT NULL,
+  `muacaodiem_id` INT NOT NULL,
+  `he_so_phu_thu` DECIMAL(4,2) NOT NULL,
+  PRIMARY KEY (`phong_id`, `muacaodiem_id`),
+  KEY `idx_phong_muacaodiem_season` (`muacaodiem_id`),
+  CONSTRAINT `fk_pmd_phong` FOREIGN KEY (`phong_id`) REFERENCES `phong` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `fk_pmd_muacaodiem` FOREIGN KEY (`muacaodiem_id`) REFERENCES `muacaodiem` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `chk_pmd_he_so` CHECK (`he_so_phu_thu` IN (0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50, 0.60))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
@@ -317,11 +324,18 @@ INSERT INTO `khach` (`id`, `ho_ten`, `cccd`, `sdt`) VALUES
 (10, 'Nguyen Thao Vy',   '079201000010', '0901000010');
 
 -- 2.4 muacaodiem (Peak season rules per room)
-INSERT INTO `muacaodiem` (`id`, `phong_id`, `tu_ngay`, `den_ngay`, `he_so_gia`) VALUES
-(1, 1, '2026-12-20', '2026-12-31', 0.20),
-(2, 3, '2026-12-20', '2026-12-31', 0.30),
-(3, 5, '2026-12-20', '2026-12-31', 0.50),
-(4, 7, '2026-12-20', '2026-12-31', 0.60);
+INSERT INTO `muacaodiem` (`id`, `tu_ngay`, `den_ngay`) VALUES
+(1, '2026-12-20', '2026-12-31');
+
+INSERT INTO `phong_muacaodiem` (`phong_id`, `muacaodiem_id`, `he_so_phu_thu`) VALUES
+-- STANDARD: 101, 102, 502, 601 -> 20%
+(1, 1, 0.20), (2, 1, 0.20), (10, 1, 0.20), (11, 1, 0.20),
+-- DELUXE: 201, 202, 501 -> 25%
+(3, 1, 0.25), (4, 1, 0.25), (9, 1, 0.25),
+-- VIP: 301, 302 -> 30%
+(5, 1, 0.30), (6, 1, 0.30),
+-- FAMILY: 401, 402 -> 35%
+(7, 1, 0.35), (8, 1, 0.35);
 
 -- 2.5 booking (17 bookings covering all 5 statuses: CHO_XAC_NHAN, DA_XAC_NHAN, DANG_O, DA_HUY, HOAN_THANH)
 INSERT INTO `booking` (`id`, `phong_id`, `khach_id`, `ngay_nhan`, `ngay_tra`, `trang_thai`) VALUES
@@ -331,7 +345,7 @@ INSERT INTO `booking` (`id`, `phong_id`, `khach_id`, `ngay_nhan`, `ngay_tra`, `t
 (4,  4,  4,  '2026-12-11', '2026-12-13', 'DA_XAC_NHAN'),
 (5,  5,  5,  '2026-12-14', '2026-12-16', 'DA_XAC_NHAN'),
 (6,  6,  6,  '2026-12-17', '2026-12-20', 'DA_XAC_NHAN'),
-(7,  7,  7,  '2026-12-21', '2026-12-24', 'DA_XAC_NHAN'), -- Ap dung phu thu mua cao diem 0.60
+(7,  7,  7,  '2026-12-21', '2026-12-24', 'DA_XAC_NHAN'), -- Family ap dung phu thu 35% theo loai phong
 (8,  8,  8,  '2026-12-25', '2026-12-27', 'DA_XAC_NHAN'),
 (9,  9,  9,  '2026-12-28', '2026-12-30', 'DA_XAC_NHAN'),
 (10, 10, 10, '2026-12-05', '2026-12-07', 'DA_HUY'),
@@ -476,7 +490,7 @@ INSERT INTO `hoadon` (`id`, `pay_id`, `tien_phong`, `tien_dich_vu`, `tong_tien`,
 (4,  4,  1600000.00, 160000.00, 1760000.00, '2026-11-11 11:55:00'),
 (5,  5,  2400000.00, 550000.00, 2950000.00, '2026-11-12 12:55:00'),
 (6,  6,  3600000.00, 150000.00, 3750000.00, '2026-11-12 13:55:00'),
-(7,  7,  7200000.00, 200000.00, 7400000.00, '2026-11-13 14:55:00'), -- Sau backfill: 4.5tr tien phong + 2.7tr phu phi + 200k DV
+(7,  7,  7200000.00, 200000.00, 7400000.00, '2026-11-13 14:55:00'), -- Sau backfill: Family ap dung muc phu thu 35% theo loai phong
 (8,  8,  3000000.00, 100000.00, 3100000.00, '2026-11-13 15:55:00'),
 (9,  9,  1600000.00,  80000.00, 1680000.00, '2026-11-14 16:55:00'),
 (10, 12, 1800000.00,      0.00, 1800000.00, '2026-11-15 09:25:00'), -- Sau backfill: 1.5tr tien phong + 300k phu phi + 0 DV
@@ -1433,10 +1447,11 @@ BEGIN
         SET v_flag=0; SET v_detail=JSON_ARRAY();
         WHILE v_day < v_end DO
             SET v_season_id=NULL; SET v_factor=0.00;
-            SELECT MAX(id), COALESCE(MAX(he_so_gia),0.00)
+            SELECT MAX(m.id), COALESCE(MAX(pm.he_so_phu_thu),0.00)
             INTO v_season_id, v_factor
-            FROM muacaodiem
-            WHERE phong_id=v_room_id AND v_day BETWEEN tu_ngay AND den_ngay;
+            FROM muacaodiem m
+            JOIN phong_muacaodiem pm ON pm.muacaodiem_id=m.id
+            WHERE pm.phong_id=v_room_id AND v_day BETWEEN m.tu_ngay AND m.den_ngay;
             IF v_season_id IS NOT NULL THEN SET v_flag=1; END IF;
             SET v_room_total=v_room_total+v_rate;
             SET v_peak_fee=v_peak_fee+ROUND(v_rate*v_factor,2);
@@ -1458,12 +1473,15 @@ BEGIN
     SET py.tien_phong_ap_dung=b.tien_phong_du_kien,
         py.tien_phu_phi_mua_cao_diem=b.tien_phu_phi_mua_cao_diem,
         py.ap_dung_mua_cao_diem=b.ap_dung_mua_cao_diem,
-        py.chi_tiet_mua_cao_diem=b.chi_tiet_mua_cao_diem;
+        py.chi_tiet_mua_cao_diem=b.chi_tiet_mua_cao_diem,
+        py.so_tien=b.tien_phong_du_kien + b.tien_phu_phi_mua_cao_diem
+                  + fn_tinh_tien_dich_vu(b.id);
 
     UPDATE hoadon h
     JOIN pay py ON py.id=h.pay_id
     SET h.tien_phong=py.tien_phong_ap_dung,
-        h.tien_phu_phi_mua_cao_diem=py.tien_phu_phi_mua_cao_diem;
+        h.tien_phu_phi_mua_cao_diem=py.tien_phu_phi_mua_cao_diem,
+        h.tong_tien=py.tien_phong_ap_dung + py.tien_phu_phi_mua_cao_diem + h.tien_dich_vu;
 END$$
 DELIMITER ;
 CALL `sp_backfill_peak_price_snapshots`();
@@ -1546,10 +1564,11 @@ BEGIN
     WHILE v_ngay < NEW.ngay_tra DO
         SET v_mua_id = NULL;
         SET v_he_so = 0.00;
-        SELECT MAX(m.id), COALESCE(MAX(m.he_so_gia), 0.00)
+        SELECT MAX(m.id), COALESCE(MAX(pm.he_so_phu_thu), 0.00)
         INTO v_mua_id, v_he_so
         FROM muacaodiem m
-        WHERE m.phong_id = NEW.phong_id
+        JOIN phong_muacaodiem pm ON pm.muacaodiem_id = m.id
+        WHERE pm.phong_id = NEW.phong_id
           AND v_ngay BETWEEN m.tu_ngay AND m.den_ngay;
         IF v_mua_id IS NOT NULL THEN SET v_co_mua_cao_diem = 1; END IF;
         SET v_tien_phong = v_tien_phong + v_gia_co_ban;
@@ -1779,10 +1798,11 @@ BEGIN
         WHILE v_ngay < NEW.ngay_tra DO
             SET v_mua_id = NULL;
             SET v_he_so = 0.00;
-            SELECT MAX(m.id), COALESCE(MAX(m.he_so_gia), 0.00)
+            SELECT MAX(m.id), COALESCE(MAX(pm.he_so_phu_thu), 0.00)
             INTO v_mua_id, v_he_so
             FROM muacaodiem m
-            WHERE m.phong_id = NEW.phong_id
+            JOIN phong_muacaodiem pm ON pm.muacaodiem_id = m.id
+            WHERE pm.phong_id = NEW.phong_id
               AND v_ngay BETWEEN m.tu_ngay AND m.den_ngay;
             IF v_mua_id IS NOT NULL THEN SET v_co_mua_cao_diem = 1; END IF;
             SET v_tien_phong = v_tien_phong + v_gia_co_ban;
@@ -1853,94 +1873,86 @@ DELIMITER ;
 -- GROUP B: PEAK-SEASON CONFIGURATION
 -- ----------------------------------------------------------------------------
 
--- 5. Validate peak-season INSERT and prevent overlapping periods for the same room.
+-- 5. Validate shared peak-season date ranges and room-specific junction rates.
 DROP TRIGGER IF EXISTS `trg_muacaodiem_before_insert`;
+DROP TRIGGER IF EXISTS `trg_muacaodiem_before_update`;
+DROP TRIGGER IF EXISTS `trg_phong_muacaodiem_before_insert`;
+DROP TRIGGER IF EXISTS `trg_phong_muacaodiem_before_update`;
 DELIMITER $$
 CREATE TRIGGER `trg_muacaodiem_before_insert`
 BEFORE INSERT ON `muacaodiem`
 FOR EACH ROW
 BEGIN
-    DECLARE v_room_id INT DEFAULT NULL;
-    DECLARE v_dem INT DEFAULT 0;
-
     IF NEW.tu_ngay IS NULL OR NEW.den_ngay IS NULL OR NEW.den_ngay < NEW.tu_ngay THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Khoang ngay mua cao diem khong hop le';
-    END IF;
-
-    IF NEW.he_so_gia IS NULL OR NEW.he_so_gia NOT IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60) THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'He so phu thu phai la 0.1, 0.2, 0.3, 0.4, 0.5 hoac 0.6';
-    END IF;
-
-    SELECT id INTO v_room_id
-    FROM phong
-    WHERE id = NEW.phong_id
-    FOR UPDATE;
-
-    IF v_room_id IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Phong ap dung mua cao diem khong ton tai';
-    END IF;
-
-    SELECT COUNT(*) INTO v_dem
-    FROM muacaodiem
-    WHERE phong_id = NEW.phong_id
-      AND NEW.tu_ngay <= den_ngay
-      AND NEW.den_ngay >= tu_ngay;
-
-    IF v_dem > 0 THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Khoang ngay mua cao diem bi trung lap voi cau hinh da co';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Khoang ngay mua cao diem khong hop le';
     END IF;
 END$$
-DELIMITER ;
 
-
--- 6. Validate peak-season UPDATE and exclude the current row from overlap checks.
-DROP TRIGGER IF EXISTS `trg_muacaodiem_before_update`;
-DELIMITER $$
 CREATE TRIGGER `trg_muacaodiem_before_update`
 BEFORE UPDATE ON `muacaodiem`
 FOR EACH ROW
 BEGIN
-    DECLARE v_room_id INT DEFAULT NULL;
-    DECLARE v_dem INT DEFAULT 0;
-
+    DECLARE v_conflict INT DEFAULT 0;
     IF NEW.tu_ngay IS NULL OR NEW.den_ngay IS NULL OR NEW.den_ngay < NEW.tu_ngay THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Khoang ngay mua cao diem khong hop le';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Khoang ngay mua cao diem khong hop le';
     END IF;
-
-    IF NEW.he_so_gia IS NULL OR NEW.he_so_gia NOT IN (0.10, 0.20, 0.30, 0.40, 0.50, 0.60) THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'He so phu thu phai la 0.1, 0.2, 0.3, 0.4, 0.5 hoac 0.6';
+    SELECT COUNT(*) INTO v_conflict
+    FROM phong_muacaodiem current_link
+    JOIN phong_muacaodiem other_link ON other_link.phong_id = current_link.phong_id
+    JOIN muacaodiem other_season ON other_season.id = other_link.muacaodiem_id
+    WHERE current_link.muacaodiem_id = OLD.id
+      AND other_season.id <> OLD.id
+      AND NEW.tu_ngay <= other_season.den_ngay
+      AND NEW.den_ngay >= other_season.tu_ngay;
+    IF v_conflict > 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Khoang ngay moi bi trung voi mua cao diem khac cua mot phong da lien ket';
     END IF;
+END$$
 
-    SELECT id INTO v_room_id
-    FROM phong
-    WHERE id = NEW.phong_id
-    FOR UPDATE;
-
-    IF v_room_id IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Phong ap dung mua cao diem khong ton tai';
+CREATE TRIGGER `trg_phong_muacaodiem_before_insert`
+BEFORE INSERT ON `phong_muacaodiem`
+FOR EACH ROW
+BEGIN
+    DECLARE v_start DATE DEFAULT NULL;
+    DECLARE v_end DATE DEFAULT NULL;
+    DECLARE v_conflict INT DEFAULT 0;
+    IF NEW.he_so_phu_thu IS NULL OR NEW.he_so_phu_thu NOT IN (0.10,0.20,0.25,0.30,0.35,0.40,0.50,0.60) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Ty le phu thu khong hop le';
     END IF;
+    SELECT tu_ngay, den_ngay INTO v_start, v_end FROM muacaodiem WHERE id=NEW.muacaodiem_id;
+    IF v_start IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Mua cao diem khong ton tai';
+    END IF;
+    SELECT COUNT(*) INTO v_conflict
+    FROM phong_muacaodiem pm JOIN muacaodiem m ON m.id=pm.muacaodiem_id
+    WHERE pm.phong_id=NEW.phong_id
+      AND m.tu_ngay <= v_end AND m.den_ngay >= v_start;
+    IF v_conflict > 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Phong da co mua cao diem trung khoang ngay';
+    END IF;
+END$$
 
-    SELECT COUNT(*) INTO v_dem
-    FROM muacaodiem
-    WHERE phong_id = NEW.phong_id
-      AND id <> OLD.id
-      AND NEW.tu_ngay <= den_ngay
-      AND NEW.den_ngay >= tu_ngay;
-
-    IF v_dem > 0 THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Cap nhat that bai: khoang ngay mua cao diem bi trung lap';
+CREATE TRIGGER `trg_phong_muacaodiem_before_update`
+BEFORE UPDATE ON `phong_muacaodiem`
+FOR EACH ROW
+BEGIN
+    DECLARE v_start DATE DEFAULT NULL;
+    DECLARE v_end DATE DEFAULT NULL;
+    DECLARE v_conflict INT DEFAULT 0;
+    IF NEW.he_so_phu_thu IS NULL OR NEW.he_so_phu_thu NOT IN (0.10,0.20,0.25,0.30,0.35,0.40,0.50,0.60) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Ty le phu thu khong hop le';
+    END IF;
+    SELECT tu_ngay, den_ngay INTO v_start, v_end FROM muacaodiem WHERE id=NEW.muacaodiem_id;
+    SELECT COUNT(*) INTO v_conflict
+    FROM phong_muacaodiem pm JOIN muacaodiem m ON m.id=pm.muacaodiem_id
+    WHERE pm.phong_id=NEW.phong_id
+      AND NOT (pm.phong_id=OLD.phong_id AND pm.muacaodiem_id=OLD.muacaodiem_id)
+      AND m.tu_ngay <= v_end AND m.den_ngay >= v_start;
+    IF v_conflict > 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Phong da co mua cao diem trung khoang ngay';
     END IF;
 END$$
 DELIMITER ;
-
 
 -- ----------------------------------------------------------------------------
 -- GROUP C: SERVICES
@@ -2626,11 +2638,12 @@ SELECT m.id AS mua_cao_diem_id,
        m.tu_ngay,
        m.den_ngay,
        DATEDIFF(m.den_ngay, m.tu_ngay) + 1 AS so_ngay_ap_dung,
-       m.he_so_gia,
+       pm.he_so_phu_thu AS he_so_gia,
        lp.gia_co_ban,
-       ROUND(lp.gia_co_ban * m.he_so_gia, 2) AS phu_phi_mua_cao_diem_moi_dem
+       ROUND(lp.gia_co_ban * pm.he_so_phu_thu, 2) AS phu_phi_mua_cao_diem_moi_dem
 FROM muacaodiem m
-JOIN phong p ON p.id = m.phong_id
+JOIN phong_muacaodiem pm ON pm.muacaodiem_id = m.id
+JOIN phong p ON p.id = pm.phong_id
 JOIN loaiphong lp ON lp.id = p.loai_phong_id;
 
 
