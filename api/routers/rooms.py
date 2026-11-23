@@ -10,7 +10,7 @@ router = APIRouter(
 )
 
 
-from api.schemas import RoomCreate, RoomUpdate
+from api.schemas import RoomCreate, RoomUpdate, peak_surcharge_for_room_type
 
 
 # ==============================
@@ -164,16 +164,20 @@ def create_room(room: RoomCreate, db=Depends(get_db)):
 
         # Kiểm tra loại phòng tồn tại
         cursor.execute("""
-            SELECT id
+            SELECT id, ten
             FROM loaiphong
             WHERE id = %s
         """, (room.loai_phong_id,))
-
-        if cursor.fetchone() is None:
+        room_type = cursor.fetchone()
+        if room_type is None:
             raise HTTPException(
                 status_code=404,
                 detail="Loại phòng không tồn tại."
             )
+        try:
+            peak_rate = peak_surcharge_for_room_type(room_type["ten"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         cursor.execute("""
             INSERT INTO phong (
@@ -191,9 +195,17 @@ def create_room(room: RoomCreate, db=Depends(get_db)):
         new_id = cursor.lastrowid
 
         # Phòng mới kế thừa dịch vụ mặc định đang áp dụng cho loại phòng.
-        # Nếu loại phòng chưa có phòng mẫu hoặc chưa cấu hình dịch vụ thì
-        # không phát sinh dòng dichvu nào.
         copy_room_type_default_services(cursor, new_id, room.loai_phong_id)
+
+        # Phòng mới cũng tham gia các mùa cao điểm đã tạo trước đó.
+        # Tỷ lệ được lấy theo loại phòng của phòng vật lý mới.
+        cursor.execute("SELECT id FROM muacaodiem ORDER BY id")
+        existing_seasons = cursor.fetchall()
+        if existing_seasons:
+            cursor.executemany(
+                "INSERT INTO phong_muacaodiem (phong_id, muacaodiem_id, he_so_phu_thu) VALUES (%s, %s, %s)",
+                [(new_id, int(item["id"]), peak_rate) for item in existing_seasons],
+            )
         db.commit()
 
         cursor.execute("""
@@ -310,6 +322,17 @@ def update_room(
                 (room_id,),
             )
             copy_room_type_default_services(cursor, room_id, room.loai_phong_id)
+            cursor.execute("SELECT ten FROM loaiphong WHERE id=%s", (room.loai_phong_id,))
+            new_type_row = cursor.fetchone()
+            try:
+                peak_rate = peak_surcharge_for_room_type(new_type_row["ten"])
+            except (TypeError, ValueError) as exc:
+                db.rollback()
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            cursor.execute(
+                "UPDATE phong_muacaodiem SET he_so_phu_thu=%s WHERE phong_id=%s",
+                (peak_rate, room_id),
+            )
             db.commit()
 
         # Đọc lại dữ liệu thật sau khi Stored Procedure đã COMMIT.

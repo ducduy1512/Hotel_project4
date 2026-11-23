@@ -52,9 +52,11 @@ def _room_price_preview(cursor, room_id: int, ngay_nhan: date, ngay_tra: date):
     has_peak = False
     while day < ngay_tra:
         cursor.execute(
-            """SELECT id, he_so_gia FROM muacaodiem
-               WHERE phong_id = %s AND %s BETWEEN tu_ngay AND den_ngay
-               ORDER BY he_so_gia DESC, id DESC LIMIT 1""",
+            """SELECT m.id, pm.he_so_phu_thu AS he_so_gia
+               FROM muacaodiem m
+               JOIN phong_muacaodiem pm ON pm.muacaodiem_id = m.id
+               WHERE pm.phong_id = %s AND %s BETWEEN m.tu_ngay AND m.den_ngay
+               ORDER BY pm.he_so_phu_thu DESC, m.id DESC LIMIT 1""",
             (room_id, day),
         )
         season = cursor.fetchone()
@@ -77,6 +79,11 @@ def _room_price_preview(cursor, room_id: int, ngay_nhan: date, ngay_tra: date):
         day += timedelta(days=1)
 
     total_before_services = (room_total + surcharge_total).quantize(cent, rounding=ROUND_HALF_UP)
+    peak_rates = sorted({
+        int((Decimal(str(item["he_so_gia"])) * Decimal("100")).quantize(Decimal("1")))
+        for item in nightly
+        if item.get("mua_cao_diem_id") is not None and Decimal(str(item["he_so_gia"])) > 0
+    })
     return {
         "phong_id": room_id,
         "ngay_nhan": ngay_nhan,
@@ -87,6 +94,7 @@ def _room_price_preview(cursor, room_id: int, ngay_nhan: date, ngay_tra: date):
         "tien_phu_phi_mua_cao_diem": float(surcharge_total),
         "tong_tien_phong_va_phu_phi": float(total_before_services),
         "ap_dung_mua_cao_diem": has_peak,
+        "he_so_mua_cao_diem": peak_rates,
         "chi_tiet_mua_cao_diem": nightly,
     }
 
@@ -289,6 +297,7 @@ def available_rooms(
                 "tien_phu_phi_mua_cao_diem": preview["tien_phu_phi_mua_cao_diem"],
                 "tong_tien_phong_va_phu_phi": preview["tong_tien_phong_va_phu_phi"],
                 "ap_dung_mua_cao_diem": preview["ap_dung_mua_cao_diem"],
+                "he_so_mua_cao_diem": preview["he_so_mua_cao_diem"],
                 "chi_tiet_mua_cao_diem": preview["chi_tiet_mua_cao_diem"],
             })
 

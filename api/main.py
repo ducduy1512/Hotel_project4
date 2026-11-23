@@ -72,8 +72,15 @@ app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="room-images")
 
 @app.get("/", include_in_schema=False)
 def home():
-    """Serve the HTML5 web interface; REST endpoints remain unchanged under /api."""
-    return FileResponse(str(FRONTEND_DIR / "index.html"))
+    """Serve the HTML5 interface without allowing an old cached entrypoint."""
+    return FileResponse(
+        str(FRONTEND_DIR / "index.html"),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @app.get("/api-info", include_in_schema=False)

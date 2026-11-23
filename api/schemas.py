@@ -146,15 +146,33 @@ class InvoiceCreate(BaseModel):
 # PEAK SEASON
 # =========================================================
 
-PEAK_SEASON_RATES = {0.6, 0.5, 0.4, 0.3, 0.2, 0.1}
+PEAK_SEASON_RATES = {0.6, 0.5, 0.4, 0.35, 0.3, 0.25, 0.2, 0.1}
+
+# Phu thu duoc xac dinh theo LOAI PHONG cua tung PHONG vat ly.
+ROOM_TYPE_PEAK_SURCHARGES = {
+    "standard": 0.20,
+    "deluxe": 0.25,
+    "vip": 0.30,
+    "family": 0.35,
+}
+
+
+def peak_surcharge_for_room_type(room_type_name: str) -> float:
+    key = str(room_type_name or "").strip().casefold()
+    try:
+        return ROOM_TYPE_PEAK_SURCHARGES[key]
+    except KeyError as exc:
+        raise ValueError(
+            f"Chua cau hinh phu thu mua cao diem cho loai phong '{room_type_name}'."
+        ) from exc
 
 
 def validate_peak_surcharge_rate(value: float) -> float:
     from decimal import Decimal
     allowed = {Decimal("0.6"), Decimal("0.5"), Decimal("0.4"),
-               Decimal("0.3"), Decimal("0.2"), Decimal("0.1")}
+               Decimal("0.35"), Decimal("0.3"), Decimal("0.25"), Decimal("0.2"), Decimal("0.1")}
     if Decimal(str(value)) not in allowed:
-        raise ValueError("Hệ số phụ thu phải là một trong các mức 0.6, 0.5, 0.4, 0.3, 0.2 hoặc 0.1.")
+        raise ValueError("Tỷ lệ phụ thu không hợp lệ. Các mức hệ thống hỗ trợ gồm 0.6, 0.5, 0.4, 0.35, 0.3, 0.25, 0.2 và 0.1.")
     return float(value)
 
 
@@ -180,6 +198,24 @@ class PeakSeasonUpdate(BaseModel):
     @classmethod
     def validate_rate(cls, value):
         return validate_peak_surcharge_rate(value)
+
+
+class PeakSeasonRoomRate(BaseModel):
+    """One room's rate within a shared peak-season date range."""
+    phong_id: int = Field(gt=0)
+    he_so_gia: float
+
+    @field_validator("he_so_gia")
+    @classmethod
+    def validate_rate(cls, value):
+        return validate_peak_surcharge_rate(value)
+
+
+class PeakSeasonBulkCreate(BaseModel):
+    """Create linked muacaodiem rows for every current room in one operation."""
+    tu_ngay: date
+    den_ngay: date
+    room_rates: list[PeakSeasonRoomRate] = Field(default_factory=list)
 
 
 # =========================================================

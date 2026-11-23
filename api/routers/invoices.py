@@ -42,9 +42,11 @@ def get_invoice_by_id(cursor, invoice_id: int):
             py.ngay_thanh_toan,
             py.so_tien,
             py.tien_phong_ap_dung,
-            py.tien_phu_phi_mua_cao_diem,
+            py.tien_phu_phi_mua_cao_diem AS pay_tien_phu_phi_mua_cao_diem,
             py.ap_dung_mua_cao_diem,
             py.chi_tiet_mua_cao_diem,
+            b.ap_dung_mua_cao_diem AS booking_ap_dung_mua_cao_diem,
+            b.chi_tiet_mua_cao_diem AS booking_chi_tiet_mua_cao_diem,
             py.method,
             py.status AS payment_status,
             b.phong_id,
@@ -64,11 +66,53 @@ def get_invoice_by_id(cursor, invoice_id: int):
         (invoice_id,),
     )
     row = cursor.fetchone()
-    if row and isinstance(row.get("chi_tiet_mua_cao_diem"), str):
+    if row is None:
+        return None
+
+    # Pay snapshot is preferred because it is the immutable payment-time copy.
+    # For older Pay rows where this field was not populated, fall back to the
+    # Booking snapshot (also persisted by the database when the booking was made).
+    if not row.get("chi_tiet_mua_cao_diem"):
+        row["chi_tiet_mua_cao_diem"] = row.get("booking_chi_tiet_mua_cao_diem")
+    if not row.get("ap_dung_mua_cao_diem") and row.get("booking_ap_dung_mua_cao_diem"):
+        row["ap_dung_mua_cao_diem"] = row["booking_ap_dung_mua_cao_diem"]
+    try:
+        stored_peak_fee = Decimal(str(row.get("tien_phu_phi_mua_cao_diem") or 0))
+    except Exception:
+        stored_peak_fee = Decimal("0")
+    if stored_peak_fee > 0:
+        row["ap_dung_mua_cao_diem"] = 1
+
+    if isinstance(row.get("chi_tiet_mua_cao_diem"), str):
         try:
             row["chi_tiet_mua_cao_diem"] = json.loads(row["chi_tiet_mua_cao_diem"])
         except ValueError:
             pass
+    row.pop("booking_ap_dung_mua_cao_diem", None)
+    row.pop("booking_chi_tiet_mua_cao_diem", None)
+
+    # Hóa đơn chỉ liệt kê các dịch vụ đã gắn với chính Booking này và có
+    # đơn giá lớn hơn 0. Dịch vụ mặc định miễn phí vẫn được lưu trong Booking
+    # nhưng không xuất hiện như một khoản phải thanh toán.
+    cursor.execute(
+        """
+        SELECT
+            id AS dichvu_id,
+            ten,
+            don_gia,
+            so_luong,
+            don_vi_tinh,
+            nhom_dich_vu,
+            loai_dichvu,
+            ROUND(don_gia * so_luong, 2) AS thanh_tien
+        FROM dichvu
+        WHERE booking_id = %s
+          AND don_gia > 0
+        ORDER BY id
+        """,
+        (row["booking_id"],),
+    )
+    row["dich_vu_tinh_phi"] = cursor.fetchall()
     return enrich_peak_season_record(row)
 
 
@@ -111,9 +155,11 @@ def get_invoices(db=Depends(get_db)):
                 py.ngay_thanh_toan,
                 py.so_tien,
                 py.tien_phong_ap_dung,
-                py.tien_phu_phi_mua_cao_diem,
+                py.tien_phu_phi_mua_cao_diem AS pay_tien_phu_phi_mua_cao_diem,
                 py.ap_dung_mua_cao_diem,
                 py.chi_tiet_mua_cao_diem,
+                b.ap_dung_mua_cao_diem AS booking_ap_dung_mua_cao_diem,
+                b.chi_tiet_mua_cao_diem AS booking_chi_tiet_mua_cao_diem,
                 py.method,
                 py.status AS payment_status,
                 b.phong_id,
@@ -132,6 +178,18 @@ def get_invoices(db=Depends(get_db)):
             """
         )
         invoices = cursor.fetchall()
+        for invoice in invoices:
+            if not invoice.get("chi_tiet_mua_cao_diem"):
+                invoice["chi_tiet_mua_cao_diem"] = invoice.get("booking_chi_tiet_mua_cao_diem")
+            if not invoice.get("ap_dung_mua_cao_diem") and invoice.get("booking_ap_dung_mua_cao_diem"):
+                invoice["ap_dung_mua_cao_diem"] = invoice["booking_ap_dung_mua_cao_diem"]
+            try:
+                if Decimal(str(invoice.get("tien_phu_phi_mua_cao_diem") or 0)) > 0:
+                    invoice["ap_dung_mua_cao_diem"] = 1
+            except Exception:
+                pass
+            invoice.pop("booking_ap_dung_mua_cao_diem", None)
+            invoice.pop("booking_chi_tiet_mua_cao_diem", None)
         enrich_peak_season_records(invoices)
         return {"message": "Lấy danh sách hóa đơn thành công", "total": len(invoices), "invoices": invoices}
     except Error as exc:

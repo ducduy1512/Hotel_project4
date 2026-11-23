@@ -58,10 +58,10 @@ def test_requested_invoice_example():
     assert room + service + surcharge == Decimal("1250000.0000")
 
 
-def test_only_six_requested_peak_surcharge_rates_are_valid():
+def test_supported_peak_surcharge_rates_are_valid():
     from api.schemas import validate_peak_surcharge_rate
 
-    for allowed in (0.6, 0.5, 0.4, 0.3, 0.2, 0.1):
+    for allowed in (0.6, 0.5, 0.4, 0.35, 0.3, 0.25, 0.2, 0.1):
         assert validate_peak_surcharge_rate(allowed) == allowed
 
     for rejected in (1.2, 1.0, 0.0, 0.15, 0.7):
