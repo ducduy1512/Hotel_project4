@@ -1,0 +1,12 @@
+HUONG DAN AP DUNG BAN HOA DON V2
+
+1) DONG ung dung cu va dung Backend dang chay bang Ctrl+C trong Terminal.
+2) GIAI NEN thu muc nay vao mot thu muc moi, khong chay lai app.py trong thu muc du an cu.
+3) Mo dung thu muc Hotel_Project5_invoice_fixed_v2 (noi co app.py, api/, frontend/, pages/).
+4) Chay lai app.py tu thu muc moi. Trong Terminal, dong PROJECT phai tro den thu muc Hotel_Project5_invoice_fixed_v2.
+5) Mo lai giao dien, nhan Ctrl+Shift+R (hard refresh), vao Quan ly hoa don > Chi tiet hoa don.
+6) Neu can PDF, bam In / Luu PDF hoac Xuat PDF de tao lai file. PDF da xuat tu truoc khong tu cap nhat.
+
+Ban V2 cap nhat ca giao dien web va Tkinter/PDF; API lay snapshot phu phi tu Pay, fallback sang Booking snapshot neu Pay cu chua co snapshot; chi tiet dich vu lay tu dichvu cua dung booking_id va chi liet ke dong co don_gia > 0. Khong can chay lai SQL migration cho thay doi giao dien/API nay.
+
+Neu van khong co dong dich vu trong hoa don trong khi tong tien dich vu > 0, can kiem tra cac dong dichvu co booking_id dung hay khong. Khong tu dong lay dich vu theo phong de tranh tinh nham dich vu cua booking khac.

@@ -1,31 +1,33 @@
-HOTEL PROJECT 5 - HANDOVER CHECKS
-================================
+HOTEL PROJECT - N:N PEAK SEASON UPDATE
+======================================
 
-Peak-season surcharge update
-- Peak-season rates are restricted to 0.6, 0.5, 0.4, 0.3, 0.2 and 0.1.
-- The amount is additive: nightly base room price x rate. It is not a room-price multiplier.
-- Booking, Pay and HoaDon persist the surcharge separately from base room and service amounts.
-- Invoice total is checked as base room + peak surcharge + services.
-- Existing-database migration: Hotel_Peak_Surcharge_Migration.sql. It preserves Pay amounts, invoice totals, statuses and QR history.
-- Fresh database install: use Hotel_Complete.sql OR the six modular SQL files in README.md; do not run both.
+Architecture
+- MUACAODIEM stores one shared date interval.
+- PHONG_MUACAODIEM is the junction table for the PHONG <-> MUACAODIEM N:N relationship.
+- PHONG_MUACAODIEM stores the room-specific additive surcharge rate.
+- Customer quote and Booking snapshot lookup use the junction table.
+- Invoice/Pay snapshots remain immutable and are not recalculated by the migration.
 
-Checks performed in this build
-- Python syntax compilation: passed for api/, pages/, app.py and tests/.
-- Focused peak-season tests: 6 passed (new snapshot, legacy snapshot, non-peak, stored amount, requested total example, allowed rates).
-- Static review: Admin and Customer pricing previews, Booking/Pay/Invoice response fields and PDF line items use the separate surcharge.
-- SQL test cases added for allowed rates, Booking nightly snapshot totals, Pay-to-Booking snapshot equality, Pay-to-invoice amounts and three-part invoice sums.
-- A duplicate SELECT token in the Admin eligible-invoice query was corrected.
-- .env.example contains placeholders only. Local .env and session.json are not included in the deliverable archive.
+Confirmed sample rates (20/12/2026 through 31/12/2026)
+- Rooms 101 and 102: 20%
+- Rooms 201 and 202: 25%
+- Rooms 301 and 302 (VIP): 30%
+- Rooms 401 and 402 (Family): 35%
+- Room 501 (Deluxe): 25%
+- Rooms 502 and 601 (Standard): 20%
+- Rooms 501, 502 and 601: not linked yet
 
-Not claimed as tested here
-- No live MySQL Server was available in this environment. SQL DDL, triggers, stored procedures, migration and SQL test cases have not been executed against a running MySQL instance.
-- The Tkinter GUI has not been launched on a Windows desktop in this environment.
+Checks executed
+- Python compileall: passed
+- JavaScript node --check: passed
+- pytest: 9 passed
+- MySQL integration was not run in this environment; execute the included migration on a backed-up local database and run Hotel_Procedures.sql, Hotel_Trigger.sql, Hotel_Report.sql in the documented order.
 
-Before using the application
-1. Back up your existing database.
-2. For an existing database with the earlier peak-season snapshot columns, run Hotel_Peak_Surcharge_Migration.sql once.
-3. For a fresh database, use Hotel_Complete.sql OR the modular order documented in README.md.
-4. Run Hotel_TestCase.sql and confirm all *_MISMATCH / *_INVALID / *_MISSING counters are zero (except any known legacy conditions you intentionally retain).
-5. Copy .env.example to .env and enter your own MySQL / authentication / payment settings.
+Room-type based surcharge: Standard 20%, Deluxe 25%, VIP 30%, Family 35%.
+Every physical room receives its rate through phong.loai_phong_id -> loaiphong.ten and phong_muacaodiem.
 
-This build keeps the eight ERD business tables and the existing support tables; it does not add new database tables.
+Room-type based surcharge: Standard 20%, Deluxe 25%, VIP 30%, Family 35%.
+Every physical room receives its rate through phong.loai_phong_id -> loaiphong.ten and phong_muacaodiem.
+
+- Peak-season rates are resolved from each physical room's loaiphong.ten; Family 35% is accepted by API, SQL CHECK and triggers.
+- Added rooms are linked to existing peak seasons at the mapped room-type rate; changing a room type updates only future seasonal rules, not existing Booking snapshots.

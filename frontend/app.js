@@ -14,8 +14,8 @@ const cfg = {
  payments:{title:'Quản lý thanh toán',endpoint:'/api/payments/',singular:'thanh toán',id:'id',columns:[['id','Pay'],['booking_id','Booking'],['ngay_thanh_toan','Ngày thanh toán'],['tien_phong_ap_dung','Tiền phòng'],['tien_dich_vu','Tiền dịch vụ'],['tien_phu_phi_mua_cao_diem','Phụ phí mùa cao điểm'],['so_tien','Tổng Pay'],['method','Phương thức'],['status','Trạng thái']],fields:[['ngay_thanh_toan','Ngày thanh toán','datetime-local',false],['method','Phương thức','select:methods',false],['status','Trạng thái','select:paystatus',true]]},
  invoices:{title:'Quản lý hóa đơn',endpoint:'/api/invoices/',singular:'hóa đơn',id:'id',columns:[['id','Invoice'],['pay_id','Pay'],['booking_id','Booking'],['ho_ten','Khách hàng'],['so_phong','Phòng'],['tien_phong','Tiền phòng'],['tien_dich_vu','Dịch vụ'],['tien_phu_phi_mua_cao_diem','Phụ phí'],['tong_tien','Tổng tiền'],['ngay_lap','Ngày lập']],fields:[]}
 };
-const opts={servicetypes:[['TUY_CHON','Dịch vụ bổ sung tính phí'],['MAC_DINH','Dịch vụ mặc định miễn phí']],servicegroups:[['AN_SANG','Ăn sáng'],['GIUONG_PHU','Giường phụ'],['GIAT_UI','Giặt ủi'],['MINIBAR','Minibar'],['DUA_DON','Đưa đón'],['TRANG_TRI','Trang trí'],['DO_DUNG','Đồ dùng phòng'],['KHAC','Khác']],active:[['1','Đang kinh doanh'],['0','Ngừng cung cấp']],roomstatus:[['SAN_SANG','Sẵn sàng'],['BAO_TRI','Bảo trì']],rates:[['0.10','10%'],['0.20','20%'],['0.30','30%'],['0.40','40%'],['0.50','50%'],['0.60','60%']],methods:[['TIEN_MAT','Tiền mặt'],['CHUYEN_KHOAN','Chuyển khoản'],['THE','Thẻ']],paystatus:[['CHO_THANH_TOAN','Chờ thanh toán'],['THANH_CONG','Thành công'],['THAT_BAI','Thất bại'],['HOAN_TIEN','Hoàn tiền']]};
-async function api(path, options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(state.token)headers.Authorization=`Bearer ${state.token}`;const res=await fetch(path,{...options,headers});const type=res.headers.get('content-type')||'';let body=type.includes('json')?await res.json():await res.text();if(!res.ok){const msg=body?.detail||body?.message||`Lỗi HTTP ${res.status}`;throw new Error(typeof msg==='string'?msg:JSON.stringify(msg));}return body;}
+const opts={servicetypes:[['TUY_CHON','Dịch vụ bổ sung tính phí'],['MAC_DINH','Dịch vụ mặc định miễn phí']],servicegroups:[['AN_SANG','Ăn sáng'],['GIUONG_PHU','Giường phụ'],['GIAT_UI','Giặt ủi'],['MINIBAR','Minibar'],['DUA_DON','Đưa đón'],['TRANG_TRI','Trang trí'],['DO_DUNG','Đồ dùng phòng'],['KHAC','Khác']],active:[['1','Đang kinh doanh'],['0','Ngừng cung cấp']],roomstatus:[['SAN_SANG','Sẵn sàng'],['BAO_TRI','Bảo trì']],rates:[['0.10','10%'],['0.20','20%'],['0.25','25%'],['0.30','30%'],['0.35','35%'],['0.40','40%'],['0.50','50%'],['0.60','60%']],methods:[['TIEN_MAT','Tiền mặt'],['CHUYEN_KHOAN','Chuyển khoản'],['THE','Thẻ']],paystatus:[['CHO_THANH_TOAN','Chờ thanh toán'],['THANH_CONG','Thành công'],['THAT_BAI','Thất bại'],['HOAN_TIEN','Hoàn tiền']]};
+async function api(path, options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(state.token)headers.Authorization=`Bearer ${state.token}`;const method=String(options.method||'GET').toUpperCase();const res=await fetch(path,{...options,headers,cache:method==='GET'?'no-store':options.cache});const type=res.headers.get('content-type')||'';let body=type.includes('json')?await res.json():await res.text();if(!res.ok){const msg=body?.detail||body?.message||`Lỗi HTTP ${res.status}`;throw new Error(typeof msg==='string'?msg:JSON.stringify(msg));}return body;}
 function toast(msg,type='success'){const el=document.createElement('div');el.className=`toast ${type}`;el.textContent=msg;$('#toast-root').append(el);setTimeout(()=>el.remove(),4300)}
 function money(v){if(v===null||v===undefined||v==='')return '—';return new Intl.NumberFormat('vi-VN',{style:'currency',currency:'VND',maximumFractionDigits:0}).format(Number(v));}
 function dateText(v){if(!v)return '—';return String(v).replace('T',' ').replace('Z','').slice(0,16)}
@@ -28,7 +28,7 @@ function go(p){state.page=p;$$('[data-page]').forEach(b=>b.classList.toggle('act
 async function dashboard(){const c=$('#content');c.innerHTML=`<div class="page-heading"><div><div class="eyebrow">OVERVIEW</div><h1>Tổng quan hoạt động</h1><p>Cập nhật dữ liệu vận hành khách sạn theo thời gian thực.</p></div></div><div class="stats-grid">${[1,2,3,4].map(()=>'<div class="stat-card"><div class="loading-line">…</div></div>').join('')}</div><div class="grid two-col"><div class="panel"><h3 class="panel-title">Booking gần đây</h3><div id="recent-bookings" class="loading-line">Đang tải…</div></div><div class="panel"><h3 class="panel-title">Tình trạng phòng</h3><div id="room-state" class="loading-line">Đang tải…</div></div></div>`;try{const [b,r,k,p,i]=await Promise.all([api('/api/bookings/'),api('/api/rooms/'),api('/api/customers/'),api('/api/payments/'),api('/api/invoices/')]);const payments=p.payments||[];const totalRevenue=payments.filter(x=>x.status==='THANH_CONG').reduce((s,x)=>s+Number(x.so_tien||0),0);$('.stats-grid').innerHTML=[['Tổng phòng',r.length,'▣','Đang quản lý'],['Booking',b.length,'▤','Tất cả trạng thái'],['Khách hàng',k.length,'♙','Hồ sơ khách'],['Doanh thu đã thu',money(totalRevenue),'₫','Giao dịch thành công']].map(([l,v,ic,n])=>`<div class="stat-card"><div class="stat-top"><span class="stat-label">${l}</span><span class="stat-icon">${ic}</span></div><div class="stat-value">${v}</div><div class="stat-note">${n}</div></div>`).join('');$('#recent-bookings').innerHTML=miniTable(b.slice(0,6),[['id','Booking'],['so_phong','Phòng'],['ho_ten','Khách'],['trang_thai','Trạng thái']]);const counts={SAN_SANG:0,DANG_SU_DUNG:0,BAO_TRI:0};r.forEach(x=>counts[x.trang_thai]=(counts[x.trang_thai]||0)+1);$('#room-state').innerHTML=Object.entries(counts).map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:13px 2px;border-bottom:1px solid var(--line)">${badge(k)}<b>${v} phòng</b></div>`).join('')+`<p class="muted" style="font-size:12px">${i.invoices?.length||0} hóa đơn đã phát hành</p>`;}catch(e){c.insertAdjacentHTML('beforeend',`<p class="badge red">${esc(e.message)}</p>`);}}
 function miniTable(rows,cols){if(!rows.length)return '<div class="empty">Chưa có dữ liệu</div>';return `<div class="table-scroll"><table><thead><tr>${cols.map(c=>`<th>${c[1]}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(([k])=>`<td>${k==='trang_thai'||k==='status'?badge(r[k]):esc(r[k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;}
 function valFmt(key,v){if(key.includes('tien')||key==='don_gia'||key==='gia_co_ban'||key==='so_tien')return money(v);if(key.includes('ngay'))return dateText(v);if(key==='trang_thai'||key==='status')return badge(v);if(key==='he_so_gia')return `${Math.round(Number(v)*100)}%`;if(key==='loai_dichvu')return v==='MAC_DINH'?'Mặc định miễn phí':v==='TUY_CHON'?'Bổ sung tính phí':esc(v);if(key==='pham_vi')return v==='DANH_MUC_CHUNG'?'Danh mục dùng chung':v==='PHONG'?'Theo phòng':esc(v);if(key==='nhom_dich_vu'){const m={AN_SANG:'Ăn sáng',GIUONG_PHU:'Giường phụ',GIAT_UI:'Giặt ủi',MINIBAR:'Minibar',DUA_DON:'Đưa đón sân bay',TRANG_TRI:'Trang trí',DO_DUNG:'Đồ dùng phòng',KHAC:'Khác'};return esc(m[v]||v);}if(key==='dang_hoat_dong')return Number(v)?'<span class="badge green">Đang kinh doanh</span>':'<span class="badge red">Ngừng cung cấp</span>';return esc(v);}
-async function listPage(key){const conf=cfg[key],c=$('#content');c.innerHTML=`<div class="page-heading"><div><div class="eyebrow">MANAGEMENT</div><h1>${conf.title}</h1><p>Theo dõi, tìm kiếm và quản lý dữ liệu trên hệ thống.</p></div><div class="heading-actions">${key==='invoices'?'<button class="btn btn-primary" id="new-invoice">＋ Lập hóa đơn</button>':key==='payments'?'<button class="btn btn-secondary" id="webhooks">Nhật ký QR</button><button class="btn btn-primary" id="new-invoice">＋ Tạo Pay / hóa đơn</button>':key==='services'?'<button class="btn btn-primary" id="new-service">＋ Thêm dịch vụ</button>':`<button class="btn btn-primary" id="create">＋ Thêm ${conf.singular}</button>`}</div></div><div class="table-panel"><div class="toolbar" style="padding:15px 16px 0"><div class="search-wrap"><input class="search-input" id="search" placeholder="Tìm trong danh sách…"></div><button class="btn btn-outline btn-sm" id="refresh">↻ Làm mới</button></div><div id="table-area" class="loading-line">Đang tải danh sách…</div><div class="table-foot" id="table-count"></div></div>`;$('#refresh').onclick=()=>listPage(key);$('#search').oninput=()=>renderTable(key);if(key==='invoices')$('#new-invoice').onclick=()=>invoiceCreate();else if(key==='payments'){$('#webhooks').onclick=webhookList;$('#new-invoice').onclick=()=>invoiceCreate();}else if(key==='services')$('#new-service').onclick=()=>openForm(key);else $('#create').onclick=()=>openForm(key);try{let data=await api(conf.endpoint);if(key==='payments')data=data.payments||[];if(key==='invoices')data=data.invoices||[];state.cache[key]=data;state.rows=data;renderTable(key);}catch(e){$('#table-area').innerHTML=`<div class="empty">Không tải được dữ liệu: ${esc(e.message)}</div>`;}}
+async function listPage(key){const conf=cfg[key],c=$('#content');c.innerHTML=`<div class="page-heading"><div><div class="eyebrow">MANAGEMENT</div><h1>${conf.title}</h1><p>${key==='peak-seasons'?'Thiết lập khoảng ngày cao điểm cho tất cả phòng; mỗi phòng giữ mức phụ thu riêng và khách sẽ thấy giá trước khi đặt.':'Theo dõi, tìm kiếm và quản lý dữ liệu trên hệ thống.'}</p></div><div class="heading-actions">${key==='invoices'?'<button class="btn btn-primary" id="new-invoice">＋ Lập hóa đơn</button>':key==='payments'?'<button class="btn btn-secondary" id="webhooks">Nhật ký QR</button><button class="btn btn-primary" id="new-invoice">＋ Tạo Pay / hóa đơn</button>':key==='services'?'<button class="btn btn-primary" id="new-service">＋ Thêm dịch vụ</button>':key==='peak-seasons'?'<button class="btn btn-primary" id="create">＋ Tạo mùa cho tất cả phòng</button>':`<button class="btn btn-primary" id="create">＋ Thêm ${conf.singular}</button>`}</div></div><div class="table-panel"><div class="toolbar" style="padding:15px 16px 0"><div class="search-wrap"><input class="search-input" id="search" placeholder="Tìm trong danh sách…"></div><button class="btn btn-outline btn-sm" id="refresh">↻ Làm mới</button></div><div id="table-area" class="loading-line">Đang tải danh sách…</div><div class="table-foot" id="table-count"></div></div>`;$('#refresh').onclick=()=>listPage(key);$('#search').oninput=()=>renderTable(key);if(key==='invoices')$('#new-invoice').onclick=()=>invoiceCreate();else if(key==='payments'){$('#webhooks').onclick=webhookList;$('#new-invoice').onclick=()=>invoiceCreate();}else if(key==='services')$('#new-service').onclick=()=>openForm(key);else if(key==='peak-seasons')$('#create').onclick=()=>openPeakSeasonBulkForm();else $('#create').onclick=()=>openForm(key);try{let data=await api(conf.endpoint);if(key==='payments')data=data.payments||[];if(key==='invoices')data=data.invoices||[];state.cache[key]=data;state.rows=data;renderTable(key);}catch(e){$('#table-area').innerHTML=`<div class="empty">Không tải được dữ liệu: ${esc(e.message)}</div>`;}}
 function renderTable(key){const conf=cfg[key],area=$('#table-area');if(!area)return;const q=($('#search')?.value||'').toLowerCase();const rows=(state.cache[key]||[]).filter(r=>!q||Object.values(r).some(v=>String(v??'').toLowerCase().includes(q)));if(!rows.length){area.innerHTML='<div class="empty">Không có dữ liệu phù hợp.</div>';$('#table-count').textContent='0 bản ghi';return;}const columns=conf.columns;area.innerHTML=`<div class="table-scroll"><table><thead><tr>${columns.map(x=>`<th>${x[1]}</th>`).join('')}<th>Thao tác</th></tr></thead><tbody>${rows.map(r=>`<tr>${columns.map(([k])=>`<td>${valFmt(k,r[k])}</td>`).join('')}<td><div class="actions">${key==='bookings'?bookingActions(r):key==='payments'?paymentActions(r):key==='invoices'?'<button class="btn btn-outline btn-sm" data-view="'+r.id+'">Chi tiết</button>':key==='room-types'?`<button class="btn btn-success btn-sm" data-room-type-services="${r.id}">Dịch vụ mặc định</button><button class="btn btn-outline btn-sm" data-edit="${r[conf.id]}">Sửa</button><button class="btn btn-danger btn-sm" data-delete="${r[conf.id]}">Xóa</button>`:`<button class="btn btn-outline btn-sm" data-edit="${r[conf.id]}">Sửa</button><button class="btn btn-danger btn-sm" data-delete="${r[conf.id]}">Xóa</button>`}</div></td></tr>`).join('')}</tbody></table></div>`;$('#table-count').textContent=`Hiển thị ${rows.length} / ${(state.cache[key]||[]).length} bản ghi`;$$('[data-edit]',area).forEach(b=>b.onclick=()=>openForm(key,rows.find(x=>String(x[conf.id])===b.dataset.edit)));$$('[data-delete]',area).forEach(b=>b.onclick=()=>removeRecord(key,b.dataset.delete));$$('[data-action]',area).forEach(b=>b.onclick=()=>bookingAction(b.dataset.action,b.dataset.id));$$('[data-status]',area).forEach(b=>b.onclick=()=>editPaymentStatus(rows.find(x=>String(x.id)===b.dataset.id)));$$('[data-view]',area).forEach(b=>b.onclick=()=>viewInvoice(b.dataset.view));$$('[data-booking-view]',area).forEach(b=>b.onclick=()=>viewBooking(b.dataset.bookingView));$$('[data-booking-edit]',area).forEach(b=>b.onclick=()=>openForm('bookings',rows.find(x=>String(x.id)===b.dataset.bookingEdit)));$$('[data-payment-delete]',area).forEach(b=>b.onclick=()=>deletePayment(b.dataset.paymentDelete));$$('[data-room-type-services]',area).forEach(b=>b.onclick=()=>openRoomTypeServices(b.dataset.roomTypeServices));}
 function bookingActions(r){let a=[`<button class="btn btn-outline btn-sm" data-booking-view="${r.id}">Chi tiết</button>`];if(['CHO_XAC_NHAN','DA_XAC_NHAN'].includes(r.trang_thai))a.push(`<button class="btn btn-outline btn-sm" data-booking-edit="${r.id}">Sửa</button>`);if(r.trang_thai==='CHO_XAC_NHAN')a.push(`<button class="btn btn-success btn-sm" data-action="confirm" data-id="${r.id}">Xác nhận</button>`);if(r.trang_thai==='DA_XAC_NHAN')a.push(`<button class="btn btn-outline btn-sm" data-action="check-in" data-id="${r.id}">Nhận phòng</button>`);if(r.trang_thai==='DANG_O')a.push(`<button class="btn btn-outline btn-sm" data-action="check-out" data-id="${r.id}">Trả phòng</button>`);if(!['DA_HUY','HOAN_THANH'].includes(r.trang_thai))a.push(`<button class="btn btn-danger btn-sm" data-action="cancel" data-id="${r.id}">Hủy</button>`);return a.join('');}
 function paymentActions(r){return `<button class="btn btn-outline btn-sm" data-status="1" data-id="${r.id}">Sửa</button><button class="btn btn-danger btn-sm" data-payment-delete="${r.id}">Xóa</button>`;}
@@ -103,11 +103,146 @@ async function openRoomTypeServices(roomTypeId){
  }catch(error){toast(error.message,'error');}
 }
 
+function defaultPeakSurchargeForRoomType(typeName){
+ const key=String(typeName||'').trim().toLowerCase();
+ const rates={standard:0.20,deluxe:0.25,vip:0.30,family:0.35};
+ if(!(key in rates))throw new Error(`Chưa cấu hình phụ thu mùa cao điểm cho loại phòng "${typeName}".`);
+ return rates[key];
+}
+async function openPeakSeasonBulkForm(){
+ try{
+  const rooms=await api('/api/rooms/');
+  if(!rooms.length){toast('Khách sạn chưa có phòng để áp dụng mùa cao điểm.','error');return;}
+  const roomRows=rooms.map(room=>{
+   const rate=defaultPeakSurchargeForRoomType(room.ten_loai_phong);
+   return `<tr><td><b>Phòng ${esc(room.so_phong)}</b><small class="muted" style="display:block">${esc(room.ten_loai_phong)} · ID: ${room.id}</small></td><td><b>${Math.round(rate*100)}%</b></td></tr>`;
+  }).join('');
+  const today=new Date();const dateValue=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+  openModal('Tạo mùa cao điểm cho tất cả phòng',`
+   <p class="muted" style="margin:0 0 14px">Một khoảng ngày chỉ tạo <b>một bản ghi muacaodiem</b>. Mỗi phòng được liên kết qua <b>phong_muacaodiem</b>. Tỷ lệ tự động lấy theo loại phòng của từng phòng: Standard 20%, Deluxe 25%, VIP 30%, Family 35%.</p>
+   <form id="peak-season-all-form">
+    <div class="form-grid">
+     <div class="field"><label>Từ ngày</label><input type="date" name="tu_ngay" required></div>
+     <div class="field"><label>Đến ngày</label><input type="date" name="den_ngay" required></div>
+    </div>
+    <div class="table-scroll" style="margin-top:16px;max-height:330px;overflow:auto"><table><thead><tr><th>Phòng / Loại phòng</th><th>Tỷ lệ phụ thu</th></tr></thead><tbody>${roomRows}</tbody></table></div>
+    <p class="muted" style="font-size:11px;margin:10px 0 0">Tỷ lệ được hệ thống xác định tự động theo loại phòng đang gán cho từng phòng vật lý, không nhập mức phụ thu chung cho loại phòng.</p>
+    <div class="form-actions"><button type="button" class="btn btn-secondary" data-close>Hủy</button><button class="btn btn-primary">Áp dụng cho ${rooms.length} phòng</button></div>
+   </form>`);
+  const form=$('#peak-season-all-form');
+  form.onsubmit=async event=>{
+   event.preventDefault();
+   const data=new FormData(form),start=String(data.get('tu_ngay')||''),end=String(data.get('den_ngay')||'');
+   if(!start||!end||end<=start){toast('Ngày kết thúc phải sau ngày bắt đầu.','error');return;}
+   try{
+    const result=await api('/api/peak-seasons/apply-all',{method:'POST',body:JSON.stringify({tu_ngay:start,den_ngay:end})});
+    closeModal();toast(result.message||'Đã tạo mùa cao điểm với tỷ lệ theo từng loại phòng.');listPage('peak-seasons');
+   }catch(error){toast(error.message,'error');}
+  };
+ }catch(error){toast(error.message,'error');}
+}
 async function removeRecord(key,id){if(!confirm(`Xóa ${cfg[key].singular} #${id}?`))return;try{await api(`${cfg[key].endpoint}${id}`,{method:'DELETE'});toast('Đã xóa dữ liệu.');listPage(key);}catch(e){toast(e.message,'error');}}
 async function invoiceCreate(){try{const res=await api('/api/invoices/eligible-bookings');const rows=res.bookings||[];if(!rows.length){toast('Không có Booking đủ điều kiện lập hóa đơn.','error');return;}openModal('Lập hóa đơn từ Booking',`<form id="invoice-form"><div class="field"><label>Booking</label><select name="booking_id" required>${rows.map(b=>`<option value="${b.id}">#${b.id} · Phòng ${esc(b.so_phong)} · ${esc(b.ho_ten)} · ${esc(b.trang_thai)}</option>`).join('')}</select></div><div class="field" style="margin-top:14px"><label>Phương thức thanh toán</label><select name="method">${opts.methods.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></div><div class="form-actions"><button class="btn btn-secondary" type="button" data-close>Hủy</button><button class="btn btn-primary">Lập hóa đơn & tính tiền</button></div></form>`);$('#invoice-form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.currentTarget));d.booking_id=Number(d.booking_id);try{const result=await api('/api/invoices/',{method:'POST',body:JSON.stringify(d)});closeModal();toast(result.message||'Đã lập hóa đơn.');listPage('invoices');}catch(x){toast(x.message,'error');}};}catch(e){toast(e.message,'error');}}
-async function viewInvoice(id){try{const r=await api(`/api/invoices/${id}`);const inv=r.invoice||r;openModal(`Hóa đơn #${id}`,`<div class="invoice-summary">${[['Mã hóa đơn',inv.id],['Mã thanh toán',inv.pay_id],['Tiền phòng',money(inv.tien_phong)],['Phụ phí mùa cao điểm',money(inv.tien_phu_phi_mua_cao_diem)],['Tiền dịch vụ',money(inv.tien_dich_vu)],['Tổng tiền',money(inv.tong_tien)]].map(([k,v])=>`<div class="summary-row"><span>${k}</span><b>${esc(v)}</b></div>`).join('')}</div><div class="form-actions"><button class="btn btn-primary" id="print-invoice">In / Lưu PDF</button></div>`);$('#print-invoice').onclick=()=>{const w=window.open('','_blank');w.document.write(`<html><head><title>Hoa don ${id}</title><style>body{font:15px Arial;padding:40px;color:#20364a}h1{text-align:center}table{width:100%;border-collapse:collapse;margin-top:25px}td{padding:12px;border-bottom:1px solid #ddd}td:last-child{text-align:right;font-weight:bold}.total{font-size:20px}</style></head><body><h1>HÓA ĐƠN THANH TOÁN</h1><p>Mã hóa đơn: #${id}</p><table>${[['Mã thanh toán',inv.pay_id],['Tiền phòng',money(inv.tien_phong)],['Phụ phí mùa cao điểm',money(inv.tien_phu_phi_mua_cao_diem)],['Tiền dịch vụ',money(inv.tien_dich_vu)],['TỔNG TIỀN',money(inv.tong_tien)]].map(([k,v],i)=>`<tr class="${i===4?'total':''}"><td>${k}</td><td>${v}</td></tr>`).join('')}</table></body></html>`);w.document.close();w.print();};}catch(e){toast(e.message,'error');}}
+async function viewInvoice(id) {
+  try {
+    const r = await api(`/api/invoices/${id}`);
+    const inv = r.invoice || r;
+    const services = (Array.isArray(inv.dich_vu_tinh_phi) ? inv.dich_vu_tinh_phi : [])
+      .filter(service => Number(service.don_gia || 0) > 0 && Number(service.so_luong || 0) > 0);
+    const toSurchargePercent = value => {
+      let rate = Number(value);
+      if (!Number.isFinite(rate) || rate <= 0) return null;
+      // Legacy snapshots may store a multiplier (1.30); current snapshots store 0.30.
+      if (rate > 1) rate -= 1;
+      const percent = Math.round(rate * 100);
+      return percent > 0 ? percent : null;
+    };
+    let rawSnapshot = inv.chi_tiet_mua_cao_diem || [];
+    if (typeof rawSnapshot === 'string') {
+      try { rawSnapshot = JSON.parse(rawSnapshot); } catch (_) { rawSnapshot = []; }
+    }
+    const snapshotRates = Array.isArray(rawSnapshot)
+      ? rawSnapshot
+          .filter(item => item && (item.mua_cao_diem_id != null || Number(item.phi_mua_cao_diem || 0) > 0))
+          .map(item => toSurchargePercent(item.he_so_gia))
+          .filter(rate => rate !== null)
+      : [];
+    const apiRates = (Array.isArray(inv.he_so_mua_cao_diem) ? inv.he_so_mua_cao_diem : [])
+      .map(toSurchargePercent).filter(rate => rate !== null);
+    const peakRates = [...new Set(apiRates.length ? apiRates : snapshotRates)];
+    const peakLabel = peakRates.length
+      ? `Phụ phí mùa cao điểm (${peakRates.map(rate => `${rate}%`).join(', ')})`
+      : 'Phụ phí mùa cao điểm';
+    const serviceRows = services.map(service => {
+      const amount = service.thanh_tien ?? (Number(service.don_gia || 0) * Number(service.so_luong || 0));
+      const quantity = Number(service.so_luong || 0);
+      const unit = service.don_vi_tinh ? ` ${esc(service.don_vi_tinh)}` : '';
+      return `<tr><td>${esc(service.ten)}</td><td>${money(service.don_gia)}</td><td>${quantity}${unit}</td><td>${money(amount)}</td></tr>`;
+    }).join('');
+    const serviceDetailMarkup = services.length
+      ? `<section class="invoice-services"><h4>CHI TIẾT DỊCH VỤ TÍNH PHÍ</h4><div class="table-scroll"><table><thead><tr><th>Dịch vụ</th><th>Đơn giá</th><th>Số lượng</th><th>Thành tiền</th></tr></thead><tbody>${serviceRows}</tbody></table></div></section>`
+      : `<section class="invoice-services"><h4>CHI TIẾT DỊCH VỤ TÍNH PHÍ</h4><p>${Number(inv.tien_dich_vu || 0) > 0 ? 'Hóa đơn có tiền dịch vụ nhưng API chưa trả về từng dòng dịch vụ. Hãy tải lại Backend và kiểm tra dữ liệu dichvu theo Booking.' : 'Không có dịch vụ tính phí được ghi nhận cho Booking này.'}</p></section>`;
+
+    const summaryRows = [
+      ['Mã hóa đơn', inv.id],
+      ['Mã thanh toán', inv.pay_id],
+      ['Tiền phòng', money(inv.tien_phong)],
+      [peakLabel, money(inv.tien_phu_phi_mua_cao_diem)],
+      ['Tiền dịch vụ', money(inv.tien_dich_vu)],
+      ['TỔNG TIỀN', money(inv.tong_tien)],
+    ];
+    openModal(`Hóa đơn #${id}`, `<div class="invoice-summary">${summaryRows.map(([k,v],i)=>`<div class="summary-row ${i===summaryRows.length-1?'total':''}"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>${serviceDetailMarkup}<div class="form-actions"><button class="btn btn-primary" id="print-invoice">In / Lưu PDF</button></div>`);
+
+    $('#print-invoice').onclick = () => {
+      const w = window.open('', '_blank');
+      if (!w) {
+        toast('Trình duyệt đã chặn cửa sổ in hóa đơn. Hãy cho phép cửa sổ bật lên rồi thử lại.', 'error');
+        return;
+      }
+      const printServiceRows = services.map(service => {
+        const amount = service.thanh_tien ?? (Number(service.don_gia || 0) * Number(service.so_luong || 0));
+        const quantity = Number(service.so_luong || 0);
+        const unit = service.don_vi_tinh ? ` ${esc(service.don_vi_tinh)}` : '';
+        return `<tr><td>${esc(service.ten)}</td><td>${money(service.don_gia)}</td><td>${quantity}${unit}</td><td>${money(amount)}</td></tr>`;
+      }).join('');
+      const servicePrintBlock = services.length
+        ? `<h2>CHI TIẾT DỊCH VỤ TÍNH PHÍ</h2><table class="service-table"><thead><tr><th>Dịch vụ</th><th>Đơn giá</th><th>Số lượng</th><th>Thành tiền</th></tr></thead><tbody>${printServiceRows}</tbody></table>`
+        : `<h2>CHI TIẾT DỊCH VỤ TÍNH PHÍ</h2><p>Không có dịch vụ tính phí được ghi nhận cho Booking này.</p>`;
+      const printRows = [
+        ['Mã thanh toán', inv.pay_id],
+        ['Tiền phòng', money(inv.tien_phong)],
+        [peakLabel, money(inv.tien_phu_phi_mua_cao_diem)],
+        ['Tiền dịch vụ', money(inv.tien_dich_vu)],
+        ['TỔNG TIỀN', money(inv.tong_tien)],
+      ];
+      w.document.write(`<html><head><meta charset="UTF-8"><title>Hóa đơn ${id}</title><style>
+        body{font:15px Arial,sans-serif;padding:40px;color:#20364a}h1{text-align:center;margin-bottom:28px}
+        h2{font-size:16px;margin:28px 0 10px}p{margin:14px 0}
+        table{width:100%;border-collapse:collapse;margin-top:18px}th,td{padding:11px 12px;border-bottom:1px solid #ddd;text-align:left}
+        td:last-child,th:last-child{text-align:right;font-weight:bold}.summary-table td:first-child{width:70%}
+        .total{font-size:20px}.service-table{font-size:13px}.service-table th{background:#f5f7fa}
+        @media print{body{padding:15mm}}
+      </style></head><body><h1>HÓA ĐƠN THANH TOÁN</h1><p>Mã hóa đơn: #${esc(inv.id)}</p><table class="summary-table">${printRows.map(([k,v],i)=>`<tr class="${i===printRows.length-1?'total':''}"><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>${servicePrintBlock}</body></html>`);
+      w.document.close();
+      w.focus();
+      w.print();
+    };
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
 async function webhookList(){try{const d=await api('/api/payments/webhook-events');openModal('Nhật ký giao dịch QR / SePay',miniTable(d.events||[],[['id','ID'],['transaction_id','Transaction'],['payment_code','Mã thanh toán'],['transfer_amount','Số tiền'],['processing_result','Kết quả'],['received_at','Thời điểm']]));}catch(e){toast(e.message,'error');}}
 async function reportsPage(){const c=$('#content');const now=new Date(),from=new Date(now.getFullYear(),now.getMonth(),1);c.innerHTML=`<div class="page-heading"><div><div class="eyebrow">ANALYTICS</div><h1>Báo cáo doanh thu</h1><p>Thống kê giao dịch theo khoảng thời gian.</p></div></div><div class="panel"><form id="report-form" class="form-grid"><div class="field"><label>Từ ngày</label><input type="date" name="tu_ngay" value="${[from.getFullYear(),String(from.getMonth()+1).padStart(2,'0'),String(from.getDate()).padStart(2,'0')].join('-')}" required></div><div class="field"><label>Đến ngày</label><input type="date" name="den_ngay" value="${[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-')}" required></div><div class="full"><button class="btn btn-primary">Xem báo cáo</button></div></form></div><div id="report-results" style="margin-top:18px"></div>`;$('#report-form').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.currentTarget));try{const r=await api(`/api/reports/revenue?tu_ngay=${d.tu_ngay}&den_ngay=${d.den_ngay}`);$('#report-results').innerHTML=`<div class="stats-grid"><div class="stat-card"><div class="stat-label">Doanh thu thực thu</div><div class="stat-value">${money(r.data?.[0]?.doanh_thu_thuc_thu??r.doanh_thu_thuc_thu??r.tong_doanh_thu??0)}</div></div><div class="stat-card"><div class="stat-label">Giao dịch thành công</div><div class="stat-value">${r.data?.[0]?.so_giao_dich_thanh_cong??r.so_giao_dich_thanh_cong??0}</div></div><div class="stat-card"><div class="stat-label">Tổng tiền hoàn</div><div class="stat-value">${money(r.data?.[0]?.tong_tien_hoan??r.tong_tien_hoan??0)}</div></div><div class="stat-card"><div class="stat-label">Số giao dịch hoàn</div><div class="stat-value">${r.data?.[0]?.so_giao_dich_hoan_tien??r.so_giao_dich_hoan_tien??0}</div></div></div><div class="panel"><h3 class="panel-title">Chi tiết báo cáo</h3><pre style="white-space:pre-wrap;font:12px/1.6 monospace;color:#506477">${esc(JSON.stringify(r,null,2))}</pre></div>`;}catch(x){toast(x.message,'error');}};$('#report-form').requestSubmit();}
+
+function peakRateText(record){
+ let nights=record?.chi_tiet_mua_cao_diem||[];
+ if(typeof nights==='string'){try{nights=JSON.parse(nights);}catch(_){nights=[];}}
+ const rates=[...new Set((Array.isArray(nights)?nights:[])
+  .filter(n=>n&&n.mua_cao_diem_id!=null&&Number(n.phi_mua_cao_diem||0)>0)
+  .map(n=>{let rate=Number(n.he_so_gia||0);if(rate>1)rate-=1;return Math.round(rate*100);})
+  .filter(rate=>rate>0))].sort((a,b)=>a-b);
+ return rates.length?rates.map(rate=>`${rate}%`).join(', '):'';
+}
 
 async function customerHome() {
     const c = $('#content');
@@ -570,7 +705,7 @@ async function customerHome() {
                                 <div class="muted" style="font-size:11px">
                                     Tiền phòng:
                                     ${money(room.tien_phong_du_kien)}
-                                    · Phụ phí mùa cao điểm:
+                                    · Phụ phí mùa cao điểm${peakRateText(room)?` (${esc(peakRateText(room))})`:''}:
                                     ${money(
                                         room.tien_phu_phi_mua_cao_diem
                                     )}
@@ -650,7 +785,7 @@ async function chooseCustomerRoom(roomId,dates){
     <div class="invoice-summary" style="margin-bottom:16px">
      <div class="summary-row"><span>Số đêm</span><b>${p.so_dem}</b></div>
      <div class="summary-row"><span>Tiền phòng</span><b>${money(p.tien_phong_du_kien)}</b></div>
-     <div class="summary-row"><span>Phụ phí mùa cao điểm</span><b>${money(p.tien_phu_phi_mua_cao_diem)}</b></div>
+     <div class="summary-row"><span>Phụ phí mùa cao điểm${peakRateText(p)?` (${esc(peakRateText(p))})`:''}</span><b>${money(p.tien_phu_phi_mua_cao_diem)}</b></div>
      <div class="summary-row total"><span>Tiền phòng + phụ phí</span><b>${money(p.tong_tien_phong_va_phu_phi)}</b></div>
     </div>
     <h4 class="service-section-title">Dịch vụ mặc định miễn phí</h4>

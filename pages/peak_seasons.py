@@ -42,7 +42,7 @@ class PeakSeasonsPage:
 
         tk.Label(
             self.parent,
-            text="Thiết lập phụ phí mùa cao điểm theo tỷ lệ 0,1–0,6 trên giá phòng mỗi đêm",
+            text="Thiết lập một mùa cao điểm cho nhiều phòng, mỗi phòng có tỷ lệ phụ thu riêng",
             font=("Arial", 11),
             fg=self.gray,
             bg=self.background
@@ -127,6 +127,7 @@ class PeakSeasonsPage:
             row=1, column=0, sticky="ew",
             padx=10, pady=(0, 10)
         )
+        self.room_combo.bind("<<ComboboxSelected>>", self.update_rate_from_room_type)
 
         # Ngày bắt đầu
         tk.Label(
@@ -177,7 +178,7 @@ class PeakSeasonsPage:
             form_frame,
             font=("Arial", 10),
             state="readonly",
-            values=("0.6", "0.5", "0.4", "0.3", "0.2", "0.1")
+            values=("0.6", "0.5", "0.4", "0.35", "0.3", "0.25", "0.2", "0.1")
         )
         self.factor_entry.grid(
             row=3, column=1, sticky="ew",
@@ -361,7 +362,7 @@ class PeakSeasonsPage:
                 room_id = int(room["id"])
                 room_number = str(room["so_phong"])
 
-                display_name = f"{room_number} - ID: {room_id}"
+                display_name = f"{room_number} - {room.get('ten_loai_phong', '')} - ID: {room_id}"
 
                 room_options.append(display_name)
                 self.rooms_by_number[display_name] = room_id
@@ -373,6 +374,20 @@ class PeakSeasonsPage:
                 "Lỗi tải danh sách phòng",
                 str(e)
             )
+
+    def update_rate_from_room_type(self, event=None):
+        selected = self.room_var.get().strip()
+        room_id = self.rooms_by_number.get(selected)
+        room = next((r for r in self.rooms if int(r.get("id", -1)) == int(room_id or -1)), None)
+        if not room:
+            return
+        rates = {"standard": "0.20", "deluxe": "0.25", "vip": "0.30", "family": "0.35"}
+        rate = rates.get(str(room.get("ten_loai_phong", "")).strip().casefold())
+        if rate is None:
+            messagebox.showerror("Chưa cấu hình", f"Chưa có tỷ lệ mùa cao điểm cho loại phòng {room.get('ten_loai_phong')}.")
+            self.factor_entry.set("")
+            return
+        self.factor_entry.set(rate)
 
     # ==================================================
     # TẢI DANH SÁCH MÙA CAO ĐIỂM TỪ API
@@ -408,8 +423,8 @@ class PeakSeasonsPage:
     @staticmethod
     def format_surcharge_rate(value):
         try:
-            rate = Decimal(str(value)).quantize(Decimal("0.1"))
-            return f"+{rate:.1f}".replace(".", ",")
+            rate = (Decimal(str(value)) * Decimal("100")).quantize(Decimal("1"))
+            return f"{rate}%"
         except Exception:
             return str(value if value is not None else "")
 
@@ -520,7 +535,7 @@ class PeakSeasonsPage:
 
         raw_factor = season.get("he_so_gia", "")
         try:
-            self.factor_entry.set(f"{float(raw_factor):.1f}")
+            self.factor_entry.set(f"{float(raw_factor):.2f}".rstrip("0").rstrip("."))
         except (TypeError, ValueError):
             self.factor_entry.set(str(raw_factor))
 
@@ -533,7 +548,7 @@ class PeakSeasonsPage:
         end_date = self.end_entry.get().strip()
         factor = self.factor_entry.get().strip()
 
-        if not room_display or not start_date or not end_date or not factor:
+        if not room_display or not start_date or not end_date:
             messagebox.showwarning(
                 "Thiếu thông tin",
                 "Vui lòng nhập đầy đủ thông tin mùa cao điểm."
@@ -565,16 +580,15 @@ class PeakSeasonsPage:
                 )
                 return None
 
-            factor_decimal = Decimal(factor)
-            allowed_factors = {Decimal("0.6"), Decimal("0.5"), Decimal("0.4"),
-                               Decimal("0.3"), Decimal("0.2"), Decimal("0.1")}
-            if factor_decimal not in allowed_factors:
-                messagebox.showwarning(
-                    "Hệ số không hợp lệ",
-                    "Chỉ được chọn một trong các mức phụ thu: 0.6, 0.5, 0.4, 0.3, 0.2 hoặc 0.1."
-                )
+            selected_room = next((r for r in self.rooms if int(r.get("id", -1)) == int(self.rooms_by_number[room_display])), None)
+            rates = {"standard": Decimal("0.20"), "deluxe": Decimal("0.25"),
+                     "vip": Decimal("0.30"), "family": Decimal("0.35")}
+            type_name = str((selected_room or {}).get("ten_loai_phong", "")).strip().casefold()
+            if type_name not in rates:
+                messagebox.showwarning("Loại phòng chưa hỗ trợ", f"Chưa cấu hình phụ thu cho loại phòng {(selected_room or {}).get('ten_loai_phong', '')}.")
                 return None
-            factor_value = float(factor_decimal)
+            factor_value = float(rates[type_name])
+            self.factor_entry.set(f"{factor_value:.2f}")
 
         except ValueError:
             messagebox.showwarning(

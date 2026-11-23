@@ -302,6 +302,32 @@ class InvoicesPage:
 
             self.detail_labels[key] = value_label
 
+        service_frame = ttk.LabelFrame(
+            self.frame,
+            text="Các dịch vụ tính phí trong hóa đơn",
+            padding=8
+        )
+        service_frame.pack(fill="both", expand=False, pady=(5, 0))
+        service_columns = ("ten", "don_gia", "so_luong", "don_vi_tinh", "thanh_tien")
+        self.service_tree = ttk.Treeview(
+            service_frame,
+            columns=service_columns,
+            show="headings",
+            height=4
+        )
+        service_headings = {
+            "ten": "Dịch vụ",
+            "don_gia": "Đơn giá",
+            "so_luong": "Số lượng",
+            "don_vi_tinh": "Đơn vị",
+            "thanh_tien": "Thành tiền",
+        }
+        service_widths = {"ten": 280, "don_gia": 130, "so_luong": 90, "don_vi_tinh": 100, "thanh_tien": 150}
+        for column in service_columns:
+            self.service_tree.heading(column, text=service_headings[column])
+            self.service_tree.column(column, width=service_widths[column], anchor="center")
+        self.service_tree.pack(fill="x", expand=True)
+
     # =================================================
     # HÀM HỖ TRỢ
     # =================================================
@@ -316,27 +342,58 @@ class InvoicesPage:
 
     @classmethod
     def format_peak_season(cls, record):
-        if not record.get("ap_dung_mua_cao_diem"):
+        try:
+            applied = bool(record.get("ap_dung_mua_cao_diem")) or Decimal(
+                str(record.get("tien_phu_phi_mua_cao_diem") or record.get("tien_mua_cao_diem") or 0)
+            ) > 0
+        except Exception:
+            applied = bool(record.get("ap_dung_mua_cao_diem"))
+        if not applied:
             return "0"
-        if record.get("mua_cao_diem_snapshot_status") != "OK":
-            return "THIẾU SNAPSHOT"
 
-        amount = cls.format_money(record.get("tien_mua_cao_diem", 0))
+        amount = cls.format_money(
+            record.get("tien_mua_cao_diem", record.get("tien_phu_phi_mua_cao_diem", 0))
+        )
         factors = record.get("he_so_mua_cao_diem") or []
         factor_labels = []
         for factor in factors:
             try:
-                normalized_decimal = Decimal(str(factor)).normalize()
-                normalized = format(normalized_decimal, "f")
-                if "." not in normalized:
-                    normalized += ".0"
+                rate = Decimal(str(factor))
+                if rate > 1:
+                    rate -= Decimal("1")
+                percent = (rate * Decimal("100")).quantize(Decimal("1"))
+                if percent > 0:
+                    label = f"{int(percent)}%"
+                    if label not in factor_labels:
+                        factor_labels.append(label)
             except Exception:
-                normalized = str(factor)
-            factor_labels.append("+" + normalized.replace(".", ","))
-
+                continue
         if not factor_labels:
-            return amount
-        return f"{amount} ({'; '.join(factor_labels)})"
+            snapshot = record.get("chi_tiet_mua_cao_diem") or []
+            if isinstance(snapshot, str):
+                try:
+                    import json
+                    snapshot = json.loads(snapshot)
+                except Exception:
+                    snapshot = []
+            if isinstance(snapshot, list):
+                for item in snapshot:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        if item.get("mua_cao_diem_id") is None and Decimal(str(item.get("phi_mua_cao_diem") or 0)) <= 0:
+                            continue
+                        rate = Decimal(str(item.get("he_so_gia") or 0))
+                        if rate > 1:
+                            rate -= Decimal("1")
+                        percent = (rate * Decimal("100")).quantize(Decimal("1"))
+                        if percent > 0:
+                            label = f"{int(percent)}%"
+                            if label not in factor_labels:
+                                factor_labels.append(label)
+                    except Exception:
+                        continue
+        return f"{amount} ({'; '.join(factor_labels)})" if factor_labels else amount
 
     @staticmethod
     def format_date(value):
@@ -591,6 +648,22 @@ class InvoicesPage:
                 )
 
             self.selected_invoice = invoice
+            if hasattr(self, "service_tree"):
+                for item_id in self.service_tree.get_children():
+                    self.service_tree.delete(item_id)
+                for service in invoice.get("dich_vu_tinh_phi") or []:
+                    if Decimal(str(service.get("don_gia") or 0)) <= 0:
+                        continue
+                    self.service_tree.insert(
+                        "", "end",
+                        values=(
+                            service.get("ten", ""),
+                            self.format_money(service.get("don_gia", 0)),
+                            service.get("so_luong", 0),
+                            service.get("don_vi_tinh", ""),
+                            self.format_money(service.get("thanh_tien", 0)),
+                        )
+                    )
 
             display_fields = {
                 "id": invoice.get("id"),
@@ -1087,6 +1160,53 @@ class InvoicesPage:
 
         elements.append(amount_table)
 
+        paid_services = [
+            service for service in (invoice.get("dich_vu_tinh_phi") or [])
+            if Decimal(str(service.get("don_gia") or 0)) > 0
+            and int(service.get("so_luong") or 0) > 0
+        ]
+        elements.append(Spacer(1, 5 * mm))
+        elements.append(p("CHI TIẾT DỊCH VỤ TÍNH PHÍ", total_label_style))
+        if paid_services:
+            service_data = [[
+                p("Dịch vụ", label_style),
+                p("Đơn giá", label_style),
+                p("Số lượng", label_style),
+                p("Đơn vị", label_style),
+                p("Thành tiền", label_style),
+            ]]
+            for service in paid_services:
+                service_amount = service.get("thanh_tien")
+                if service_amount is None:
+                    service_amount = (
+                        Decimal(str(service.get("don_gia") or 0))
+                        * Decimal(str(service.get("so_luong") or 0))
+                    )
+                service_data.append([
+                    p(service.get("ten", ""), normal_style),
+                    p(money(service.get("don_gia", 0)), normal_style),
+                    p(service.get("so_luong", 0), normal_style),
+                    p(service.get("don_vi_tinh", ""), normal_style),
+                    p(money(service_amount), normal_style),
+                ])
+            service_table = Table(
+                service_data,
+                colWidths=[57 * mm, 29 * mm, 22 * mm, 25 * mm, 27 * mm],
+                repeatRows=1
+            )
+            service_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), light_gray),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("GRID", (0, 0), (-1, -1), 0.35, light_gray),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            elements.append(service_table)
+        else:
+            elements.append(p("Không có dịch vụ tính phí được ghi nhận cho Booking này.", normal_style))
+
         elements.append(Spacer(1, 5 * mm))
 
         elements.append(
@@ -1156,3 +1276,6 @@ class InvoicesPage:
 
         for label in self.detail_labels.values():
             label.config(text="")
+        if hasattr(self, "service_tree"):
+            for item_id in self.service_tree.get_children():
+                self.service_tree.delete(item_id)

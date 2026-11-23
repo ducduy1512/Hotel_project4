@@ -276,3 +276,31 @@ Sau khi migration hoàn tất, chạy `Hotel_TestCase.sql`. Các kiểm tra mớ
 - Pay và hóa đơn tiếp tục cộng `don_gia * so_luong` từ các dòng dịch vụ của Booking; không thay đổi snapshot tiền phòng và phụ phí mùa cao điểm.
 
 Không tự sửa `tien_phong`, `tien_phu_phi_mua_cao_diem`, `tien_dich_vu`, `tong_tien` trực tiếp trên hóa đơn đã tạo. Trigger kiểm tra từng khoản theo snapshot Pay/Booking và dịch vụ đã chốt để ngăn hóa đơn lệch.
+
+
+## Mùa cao điểm áp dụng toàn bộ phòng và xem giá trước Booking
+
+- Quản trị viên dùng nút **Tạo mùa cho tất cả phòng** để khai báo một khoảng ngày cao điểm trong một lần.
+- Hệ thống tạo một dòng `muacaodiem` cho từng phòng và vẫn giữ `muacaodiem.phong_id` làm khóa ngoại tới `phong.id`. Có thể đặt tỷ lệ phụ thu khác nhau theo từng phòng trong cùng khoảng ngày.
+- Nếu một phòng đã có mùa cao điểm giao với khoảng ngày mới, toàn bộ thao tác bị từ chối để tránh dữ liệu chồng lấn hoặc chọn nhầm mức phụ thu.
+- Khi khách chọn ngày nhận/trả và tìm phòng, API tính giá theo từng đêm, đúng `phong_id`, sau đó giao diện hiển thị tiền phòng, tỷ lệ phụ thu và số tiền phụ thu trước khi khách xác nhận Booking.
+- Khi Booking được tạo, Trigger/Stored Procedure của cơ sở dữ liệu tiếp tục tạo snapshot theo phòng và từng ngày; các hóa đơn cũ không bị tính lại.
+
+**Cập nhật cơ sở dữ liệu:** Không cần migration mới cho thay đổi này. Bảng `muacaodiem` đã có `phong_id` và FK tới `phong`; bản cập nhật dùng quan hệ hiện tại, chỉ bổ sung API tạo nhiều dòng có kiểm tra trùng ngày.
+
+
+## Peak-season relationship (N:N)
+
+The database now models `PHONG` and `MUACAODIEM` as many-to-many through
+`PHONG_MUACAODIEM`. `MUACAODIEM` stores one shared date range; the junction
+table stores `phong_id`, `muacaodiem_id`, and the room-specific `he_so_phu_thu`.
+This lets one season apply to many rooms while each room retains its own rate.
+
+For an existing 1:N database, back up `hotel_management_erd`, stop the API,
+run `Hotel_Peak_Season_NN_Migration.sql`, then run `Hotel_Procedures.sql`,
+`Hotel_Trigger.sql`, and `Hotel_Report.sql` in that order. Restart the API only
+after all four scripts complete successfully. The migration preserves Booking,
+Pay and invoice snapshot JSON and does not recalculate historical totals.
+
+The current sample season (2026-12-20 through 2026-12-31) uses 20% for rooms
+all physical rooms inherit the surcharge for their assigned room type: Standard 20%, Deluxe 25%, VIP 30%, Family 35%.
