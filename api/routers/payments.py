@@ -3,7 +3,7 @@ import json
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from mysql.connector import Error
+from database import Error
 
 from api.database import get_db
 from api.schemas import PaymentCreate, PaymentUpdate
@@ -238,7 +238,10 @@ def create_payment(data: PaymentCreate, db=Depends(get_db)):
     try:
         db.start_transaction()
         cursor.execute(
-            "SELECT id, khach_id, trang_thai FROM booking WHERE id = %s FOR UPDATE",
+            """SELECT id, khach_id, trang_thai, tien_phong_du_kien,
+                      tien_phu_phi_mua_cao_diem, ap_dung_mua_cao_diem,
+                      chi_tiet_mua_cao_diem
+               FROM booking WHERE id = %s FOR UPDATE""",
             (data.booking_id,),
         )
         booking = cursor.fetchone()
@@ -282,9 +285,11 @@ def create_payment(data: PaymentCreate, db=Depends(get_db)):
             """
             INSERT INTO pay (
                 booking_id, khach_id, ngay_thanh_toan,
-                so_tien, method, status
+                so_tien, method, status, tien_phong_ap_dung,
+                tien_phu_phi_mua_cao_diem, ap_dung_mua_cao_diem,
+                chi_tiet_mua_cao_diem
             )
-            VALUES (%s, %s, %s, %s, %s, 'CHO_THANH_TOAN')
+            VALUES (%s, %s, %s, %s, %s, 'CHO_THANH_TOAN', %s, %s, %s, %s)
             """,
             (
                 data.booking_id,
@@ -292,6 +297,10 @@ def create_payment(data: PaymentCreate, db=Depends(get_db)):
                 data.ngay_thanh_toan,
                 supplied_amount,
                 data.method,
+                booking["tien_phong_du_kien"],
+                booking["tien_phu_phi_mua_cao_diem"],
+                booking["ap_dung_mua_cao_diem"],
+                booking["chi_tiet_mua_cao_diem"],
             ),
         )
         new_id = cursor.lastrowid
@@ -309,7 +318,7 @@ def create_payment(data: PaymentCreate, db=Depends(get_db)):
         raise
     except Error as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail=f"MySQL từ chối tạo thanh toán: {exc}") from exc
+        raise HTTPException(status_code=409, detail=f"Database từ chối tạo thanh toán: {exc}") from exc
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(exc)) from exc

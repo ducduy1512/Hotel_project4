@@ -1,6 +1,6 @@
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
-from mysql.connector import Error, IntegrityError
+from database import Error, IntegrityError
 from api.database import get_db
 from api.schemas import (
     PeakSeasonCreate, PeakSeasonUpdate, PeakSeasonBulkCreate,

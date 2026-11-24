@@ -4,7 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from mysql.connector import Error
+from database import Error
 from pydantic import BaseModel, Field
 
 from api.database import get_db
@@ -30,6 +30,25 @@ class CustomerBookingCreate(BaseModel):
 
 class CustomerPaymentRequest(BaseModel):
     method: str
+
+
+@router.get("/payment-methods")
+def customer_payment_methods(current_user=Depends(require_customer)):
+    """Expose available payment methods without turning missing QR config into an API error."""
+    try:
+        get_qr_config()
+        qr_available = True
+        qr_message = None
+    except RuntimeError as exc:
+        qr_available = False
+        qr_message = str(exc)
+
+    return {
+        "cash_available": True,
+        "card_available": True,
+        "qr_available": qr_available,
+        "qr_message": qr_message,
+    }
 
 
 def _room_price_preview(cursor, room_id: int, ngay_nhan: date, ngay_tra: date):
@@ -475,7 +494,7 @@ def my_bookings(current_user=Depends(require_customer), db=Depends(get_db)):
     try:
         cursor.execute(
             """SELECT b.id AS booking_id, b.phong_id, p.so_phong, lp.ten AS loai_phong,
-                      b.ngay_nhan, b.ngay_tra, DATEDIFF(b.ngay_tra,b.ngay_nhan) AS so_dem,
+                      b.ngay_nhan, b.ngay_tra, CAST(julianday(b.ngay_tra)-julianday(b.ngay_nhan) AS INTEGER) AS so_dem,
                       b.trang_thai, b.tien_phong_du_kien, b.tien_phu_phi_mua_cao_diem,
                       b.ap_dung_mua_cao_diem, b.chi_tiet_mua_cao_diem,
                       (SELECT COUNT(*) FROM dichvu d WHERE d.booking_id=b.id) AS so_dich_vu,
@@ -505,7 +524,7 @@ def my_booking_detail(booking_id: int, current_user=Depends(require_customer), d
         cursor.execute(
             """SELECT b.id AS booking_id, b.trang_thai, b.ngay_nhan, b.ngay_tra,
                       p.id AS phong_id, p.so_phong, lp.ten AS loai_phong,
-                      lp.gia_co_ban, DATEDIFF(b.ngay_tra,b.ngay_nhan) AS so_dem,
+                      lp.gia_co_ban, CAST(julianday(b.ngay_tra)-julianday(b.ngay_nhan) AS INTEGER) AS so_dem,
                       b.tien_phong_du_kien, b.tien_phu_phi_mua_cao_diem,
                       b.ap_dung_mua_cao_diem, b.chi_tiet_mua_cao_diem
                FROM booking b JOIN phong p ON p.id=b.phong_id

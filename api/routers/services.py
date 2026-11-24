@@ -8,7 +8,7 @@ Giữ một bảng dichvu theo ERD 8 bảng:
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, HTTPException
-from mysql.connector import Error
+from database import Error
 
 from database import get_connection
 from api.schemas import ServiceCreate, ServiceUpdate

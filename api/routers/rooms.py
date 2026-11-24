@@ -1,6 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException
-from mysql.connector import Error, IntegrityError
+from database import Error, IntegrityError
 from api.database import get_db
 
 
@@ -377,7 +377,7 @@ def update_room(
         ) from exc
 
     except Error as exc:
-        # SIGNAL SQLSTATE '45000' từ Stored Procedure là lỗi nghiệp vụ,
+        # Lỗi ràng buộc/nghiệp vụ từ lớp xử lý SQLite,
         # ví dụ phòng đang có khách hoặc còn Booking hiện tại/tương lai.
         if getattr(exc, "sqlstate", None) == "45000" or getattr(exc, "errno", None) == 1644:
             raise HTTPException(
@@ -387,7 +387,7 @@ def update_room(
 
         raise HTTPException(
             status_code=500,
-            detail=f"Lỗi MySQL khi gọi sp_cap_nhat_thong_tin_phong: {exc}",
+            detail=f"Lỗi database khi cập nhật thông tin phòng: {exc}",
         ) from exc
 
     finally:

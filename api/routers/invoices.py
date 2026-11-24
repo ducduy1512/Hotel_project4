@@ -2,7 +2,7 @@ import json
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from mysql.connector import Error
+from database import Error
 
 from api.database import get_db
 from api.routers.payments import calculate_booking_totals, money
@@ -388,7 +388,7 @@ def create_invoice(data: InvoiceCreate, db=Depends(get_db)):
             )
 
         # Không có Pay đang chờ: nhả transaction của API rồi gọi procedure.
-        # sp_tinh_tien_va_tao_hoa_don tự START TRANSACTION/COMMIT trong MySQL.
+        # Bản SQLite thực thi nghiệp vụ và transaction qua lớp database.py.
         db.rollback()
         transaction_started = False
         cursor.callproc(
@@ -444,7 +444,7 @@ def create_invoice(data: InvoiceCreate, db=Depends(get_db)):
     except Error as exc:
         if transaction_started:
             db.rollback()
-        raise HTTPException(status_code=409, detail=f"MySQL từ chối lập hóa đơn: {exc}") from exc
+        raise HTTPException(status_code=409, detail=f"Database từ chối lập hóa đơn: {exc}") from exc
     except Exception as exc:
         if transaction_started:
             db.rollback()

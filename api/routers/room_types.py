@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from mysql.connector import Error, IntegrityError
+from database import Error, IntegrityError
 from api.database import get_db
 
 

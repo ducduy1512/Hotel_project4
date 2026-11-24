@@ -2,10 +2,9 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
-from mysql.connector import Error
 
 from api.database import get_db
-from database import DB_CONFIG
+from database import DB_CONFIG, Error, initialize_database
 from api.routers.auth import require_admin, require_customer
 from api.routers import (
     auth,
@@ -22,7 +21,8 @@ from api.routers import (
     payment_gateway,
 )
 
-DATABASE_NAME = DB_CONFIG["database"]
+DATABASE_NAME = Path(DB_CONFIG["database"]).name
+initialize_database()
 REQUIRED_ERD_TABLES = {
     "loaiphong", "phong", "khach", "booking",
     "dichvu", "muacaodiem", "pay", "hoadon",
@@ -103,89 +103,33 @@ def database_health_check(db=Depends(get_db)):
     cursor = None
     try:
         cursor = db.cursor()
-        cursor.execute("SELECT DATABASE()")
-        row = cursor.fetchone()
-        current_database = row[0] if row else None
-
-        if current_database != DATABASE_NAME:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    f"API đang kết nối database '{current_database}', "
-                    f"nhưng project yêu cầu '{DATABASE_NAME}'."
-                ),
-            )
-
-        cursor.execute(
-            """
-            SELECT TABLE_NAME
-            FROM information_schema.TABLES
-            WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = 'BASE TABLE'
-            """,
-            (DATABASE_NAME,),
-        )
-        existing_tables = {item[0] for item in cursor.fetchall()}
-        missing_erd_tables = sorted(REQUIRED_ERD_TABLES - existing_tables)
-        missing_support_tables = sorted(REQUIRED_SUPPORT_TABLES - existing_tables)
-
-        cursor.execute(
-            "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = %s",
-            (DATABASE_NAME,),
-        )
-        trigger_count = cursor.fetchone()[0]
-        cursor.execute(
-            """SELECT COUNT(*) FROM information_schema.ROUTINES
-               WHERE ROUTINE_SCHEMA = %s AND ROUTINE_TYPE = 'PROCEDURE'""",
-            (DATABASE_NAME,),
-        )
-        procedure_count = cursor.fetchone()[0]
-        cursor.execute(
-            "SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA = %s",
-            (DATABASE_NAME,),
-        )
-        view_count = cursor.fetchone()[0]
-
-        problems = {}
-        if missing_erd_tables:
-            problems["missing_erd_tables"] = missing_erd_tables
-        if missing_support_tables:
-            problems["missing_support_tables"] = missing_support_tables
-        if trigger_count != 15:
-            problems["trigger_count"] = {"actual": trigger_count, "expected": 15}
-        if procedure_count != 18:
-            problems["procedure_count"] = {"actual": procedure_count, "expected": 18}
-        if view_count != 10:
-            problems["view_count"] = {"actual": view_count, "expected": 10}
-
-        if problems:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "message": "Database chưa hoàn chỉnh theo bộ SQL Hotel.",
-                    "database": current_database,
-                    "problems": problems,
-                },
-            )
-
-        return {
-            "status": "OK",
-            "database": current_database,
-            "erd_tables_found": len(REQUIRED_ERD_TABLES),
-            "support_tables_found": len(REQUIRED_SUPPORT_TABLES),
-            "payment_gateway": "QR / SePay webhook tables found",
-            "triggers": trigger_count,
-            "stored_procedures": procedure_count,
-            "views": view_count,
-            "message": "MySQL đã có đủ bảng, Trigger, Stored Procedure và View của Hotel.",
+        cursor.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table','view','trigger')")
+        objects = cursor.fetchall()
+        tables = {row[0] for row in objects if row[1] == "table"}
+        views = {row[0] for row in objects if row[1] == "view"}
+        triggers = {row[0] for row in objects if row[1] == "trigger"}
+        required = {
+            "loaiphong", "phong", "khach", "booking", "dichvu", "muacaodiem",
+            "phong_muacaodiem", "pay", "hoadon", "payment_qr", "sepay_webhook_events", "users",
         }
-
+        missing = sorted(required - tables)
+        if missing:
+            raise HTTPException(status_code=503, detail={"message": "SQLite database thiếu bảng bắt buộc", "missing_tables": missing})
+        cursor.execute("PRAGMA foreign_key_check")
+        violations = cursor.fetchall()
+        if violations:
+            raise HTTPException(status_code=503, detail={"message": "Có lỗi khóa ngoại", "violations": violations[:10]})
+        return {
+            "status": "OK", "engine": "SQLite", "database": DATABASE_NAME,
+            "database_file": str(DB_CONFIG["database"]),
+            "tables": len(required), "views": len(views), "triggers": len(triggers),
+            "stored_procedures": "Đã chuyển nghiệp vụ cần thiết sang Python service layer",
+            "message": "SQLite đã được khởi tạo và kiểm tra thành công.",
+        }
     except HTTPException:
         raise
     except Error as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Không kiểm tra được MySQL: {exc}",
-        ) from exc
+        raise HTTPException(status_code=503, detail=f"Không kiểm tra được SQLite: {exc}") from exc
     finally:
         if cursor is not None:
             cursor.close()

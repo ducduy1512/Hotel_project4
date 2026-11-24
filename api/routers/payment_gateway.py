@@ -9,7 +9,7 @@ import time
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from mysql.connector import Error, IntegrityError
+from database import Error, IntegrityError
 
 from api.database import get_db
 
@@ -196,7 +196,7 @@ async def receive_sepay_webhook(request: Request, db=Depends(get_db)):
         raise
     except Error as exc:
         db.rollback()
-        raise HTTPException(status_code=503, detail=f"Không xử lý được webhook trong MySQL: {exc}") from exc
+        raise HTTPException(status_code=503, detail=f"Không xử lý được webhook trong SQLite: {exc}") from exc
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Lỗi xử lý webhook thanh toán: {exc}") from exc

@@ -2,7 +2,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from mysql.connector import Error
+from database import Error
 
 from api.database import get_db
 from api.schemas import BookingUpdate
@@ -265,41 +265,13 @@ def update_booking(
     cursor = db.cursor(dictionary=True)
     try:
         db.start_transaction()
-        cursor.execute(
-            "SELECT id, trang_thai FROM booking WHERE id = %s FOR UPDATE",
-            (booking_id,),
-        )
-        existing = cursor.fetchone()
-        if existing is None:
-            raise HTTPException(status_code=404, detail="Không tìm thấy Booking.")
-
-        if existing["trang_thai"] not in ("CHO_XAC_NHAN", "DA_XAC_NHAN"):
-            raise HTTPException(
-                status_code=409,
-                detail="Chỉ được sửa Booking đang chờ hoặc đã xác nhận.",
-            )
-
-        cursor.execute(
-            """
-            UPDATE booking
-            SET phong_id = %s,
-                khach_id = %s,
-                ngay_nhan = %s,
-                ngay_tra = %s
-            WHERE id = %s
-            """,
-            (
-                booking.phong_id,
-                booking.khach_id,
-                booking.ngay_nhan,
-                booking.ngay_tra,
-                booking_id,
-            ),
-        )
-        cursor.execute(
-            booking_select_sql("WHERE b.id = %s"),
-            (booking_id,),
-        )
+        db.start_transaction()
+        cursor.callproc("sp_cap_nhat_booking", [
+            booking_id, booking.phong_id, booking.khach_id,
+            booking.ngay_nhan, booking.ngay_tra,
+        ])
+        read_procedure_rows(cursor)
+        cursor.execute(booking_select_sql("WHERE b.id = %s"), (booking_id,))
         updated = cursor.fetchone()
         db.commit()
         return {"message": "Cập nhật Booking thành công", "booking": updated}
@@ -359,7 +331,7 @@ def cancel_booking(booking_id: int, db=Depends(get_db)):
         if cursor.fetchone() is None:
             raise HTTPException(status_code=404, detail="Không tìm thấy Booking.")
 
-        # sp_huy_booking cũng tự quản lý transaction ở phía MySQL.
+        # sp_huy_booking được lớp SQLite quản lý transaction.
         cursor.callproc("sp_huy_booking", [booking_id])
         read_procedure_rows(cursor)
 

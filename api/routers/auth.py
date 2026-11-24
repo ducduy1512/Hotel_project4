@@ -40,7 +40,7 @@ from fastapi.security import (
     HTTPAuthorizationCredentials
 )
 
-from mysql.connector import Error, IntegrityError
+from database import Error, IntegrityError
 from pydantic import BaseModel, Field
 
 from api.database import get_db
@@ -59,11 +59,22 @@ router = APIRouter(
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 TOKEN_SECRET_VALUE = os.getenv("HOTEL_AUTH_SECRET", "").strip()
+if not TOKEN_SECRET_VALUE:
+    # A clone should run without a manually prepared .env file. Generate a
+    # local-only signing secret and keep it outside Git in the ignored data/ dir.
+    secret_file = Path(__file__).resolve().parents[2] / "data" / ".auth_secret"
+    secret_file.parent.mkdir(parents=True, exist_ok=True)
+    if secret_file.exists():
+        TOKEN_SECRET_VALUE = secret_file.read_text(encoding="utf-8").strip()
+    else:
+        TOKEN_SECRET_VALUE = secrets.token_urlsafe(48)
+        secret_file.write_text(TOKEN_SECRET_VALUE, encoding="utf-8")
+        try:
+            secret_file.chmod(0o600)
+        except OSError:
+            pass
 if len(TOKEN_SECRET_VALUE) < 32 or TOKEN_SECRET_VALUE.startswith("replace-this"):
-    raise RuntimeError(
-        "HOTEL_AUTH_SECRET chưa được cấu hình an toàn. "
-        "Hãy đặt một chuỗi ngẫu nhiên riêng, tối thiểu 32 ký tự trong file .env."
-    )
+    raise RuntimeError("HOTEL_AUTH_SECRET phải có tối thiểu 32 ký tự.")
 TOKEN_SECRET = TOKEN_SECRET_VALUE.encode("utf-8")
 
 TOKEN_EXPIRE_SECONDS = 12 * 60 * 60
@@ -388,9 +399,9 @@ def get_current_user(
 
         user = cursor.fetchone()
 
-        # MySQL Connector/Python defaults to autocommit=False. The SELECT above
-        # therefore opens a read transaction. FastAPI may reuse this same
-        # get_db() connection for the protected endpoint in the same request.
+        # SQLite connection may keep a read transaction open after SELECT. The query
+        # may reuse this same
+        # connection for a protected endpoint in the same request.
         # End the read-only authentication transaction before returning so
         # endpoints that call db.start_transaction() begin on a clean session.
         db.rollback()
@@ -399,7 +410,7 @@ def get_current_user(
 
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Không thể xác minh tài khoản trên MySQL."
+            detail="Không thể xác minh tài khoản trên database."
         ) from exc
 
     finally:

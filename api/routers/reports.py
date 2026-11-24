@@ -70,7 +70,7 @@ def get_booking_history(
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Không thể lấy lịch sử booking. MySQL trả về: {str(e)}"
+            detail=f"Không thể lấy lịch sử booking. Database trả về: {str(e)}"
         )
 
 
@@ -167,7 +167,7 @@ def get_revenue_statistics(
         )
 
     try:
-        # Lấy số liệu thống kê từ stored procedure hiện tại
+        # Lấy số liệu thống kê từ lớp nghiệp vụ SQLite
         result_sets = execute_procedure(
             db,
             "sp_thong_ke_doanh_thu",
@@ -200,5 +200,5 @@ def get_revenue_statistics(
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Không thể thống kê doanh thu. MySQL trả về: {str(e)}"
+            detail=f"Không thể thống kê doanh thu. Database trả về: {str(e)}"
         )
