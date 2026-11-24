@@ -1,3 +1,5 @@
+-- LEGACY MYSQL SCRIPT: current application uses SQLite. Do not execute this script to start the SQLite edition.
+-- See README.md and sqlite_database/ for the active database setup.
 -- ============================================================================
 -- HOTEL MANAGEMENT DATABASE - VERSION 2 (ERD ALIGNED)
 -- MySQL 8.0.16+

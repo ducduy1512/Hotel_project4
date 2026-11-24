@@ -1,3 +1,5 @@
+-- LEGACY MYSQL SCRIPT: current application uses SQLite. Do not execute this script to start the SQLite edition.
+-- See README.md and sqlite_database/ for the active database setup.
 -- HOTEL MANAGEMENT SYSTEM - SQL MODULE
 -- Database: hotel_management_erd
 -- ERD: 8 business tables + supplementary users authentication table

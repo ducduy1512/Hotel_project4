@@ -1,24 +1,5 @@
--- HOTEL MANAGEMENT SYSTEM - SQL MODULE
--- Database: hotel_management_erd
--- ERD: 8 business tables + supplementary users authentication table
--- Run files in this order:
--- 1) Hotel_Table.sql
--- 2) Hotel_InsertData.sql
--- 3) Hotel_Procedures.sql
--- 4) Hotel_Trigger.sql
--- 5) Hotel_Report.sql
--- 6) Hotel_TestCase.sql
--- Hotel_Six_Issues_Fix.sql is only for reconciling the uploaded legacy database dump.
--- MySQL 8.0.16+ is required for enforced CHECK constraints.
-
-USE hotel_management_erd;
-SET NAMES utf8mb4;
-
--- 5. VIEWS (10 VIEWS FOR REPORTING AND APPLICATION SCREENS)
--- ============================================================================
-
--- 5.1 Room information with room type and current status.
-CREATE OR REPLACE VIEW `v_thong_tin_phong` AS
+-- Ten reporting views converted from Hotel_Complete.sql to SQLite.
+CREATE VIEW IF NOT EXISTS `v_thong_tin_phong` AS
 SELECT p.id AS phong_id,
        p.so_phong,
        lp.id AS loai_phong_id,
@@ -35,14 +16,12 @@ SELECT p.id AS phong_id,
 FROM phong p
 JOIN loaiphong lp ON lp.id = p.loai_phong_id;
 
-
--- 5.2 Booking details with customer, room, service and payment summaries.
-CREATE OR REPLACE VIEW `v_chi_tiet_booking` AS
+CREATE VIEW IF NOT EXISTS `v_chi_tiet_booking` AS
 SELECT b.id AS booking_id,
        b.trang_thai AS trang_thai_booking,
        b.ngay_nhan,
        b.ngay_tra,
-       DATEDIFF(b.ngay_tra, b.ngay_nhan) AS so_dem,
+       CAST(julianday(b.ngay_tra) - julianday(b.ngay_nhan) AS INTEGER) AS so_dem,
        k.id AS khach_id,
        k.ho_ten,
        k.cccd,
@@ -74,9 +53,7 @@ JOIN khach k ON k.id = b.khach_id
 JOIN phong p ON p.id = b.phong_id
 JOIN loaiphong lp ON lp.id = p.loai_phong_id;
 
-
--- 5.3 Rooms currently occupied and their in-house customers.
-CREATE OR REPLACE VIEW `v_phong_dang_su_dung` AS
+CREATE VIEW IF NOT EXISTS `v_phong_dang_su_dung` AS
 SELECT p.id AS phong_id,
        p.so_phong,
        lp.ten AS loai_phong,
@@ -91,9 +68,7 @@ JOIN booking b ON b.phong_id = p.id AND b.trang_thai = 'DANG_O'
 JOIN khach k ON k.id = b.khach_id
 JOIN loaiphong lp ON lp.id = p.loai_phong_id;
 
-
--- 5.4 Rooms marked for maintenance.
-CREATE OR REPLACE VIEW `v_phong_bao_tri` AS
+CREATE VIEW IF NOT EXISTS `v_phong_bao_tri` AS
 SELECT p.id AS phong_id,
        p.so_phong,
        lp.ten AS loai_phong,
@@ -104,9 +79,7 @@ FROM phong p
 JOIN loaiphong lp ON lp.id = p.loai_phong_id
 WHERE p.trang_thai = 'BAO_TRI';
 
-
--- 5.5 Itemized services consumed under each Booking.
-CREATE OR REPLACE VIEW `v_dich_vu_booking` AS
+CREATE VIEW IF NOT EXISTS `v_dich_vu_booking` AS
 SELECT d.id AS dichvu_id,
        d.booking_id,
        b.trang_thai AS trang_thai_booking,
@@ -124,9 +97,7 @@ JOIN booking b ON b.id = d.booking_id
 JOIN khach k ON k.id = b.khach_id
 JOIN phong p ON p.id = b.phong_id;
 
-
--- 5.6 Invoice details with associated payment, Booking, customer and room.
-CREATE OR REPLACE VIEW `v_chi_tiet_hoa_don` AS
+CREATE VIEW IF NOT EXISTS `v_chi_tiet_hoa_don` AS
 SELECT hd.id AS hoadon_id,
        hd.ngay_lap,
        hd.tien_phong,
@@ -149,11 +120,9 @@ JOIN booking b ON b.id = py.booking_id
 JOIN khach k ON k.id = b.khach_id
 JOIN phong p ON p.id = b.phong_id;
 
-
--- 5.7 Monthly cash revenue: successful receipts less refunds.
-CREATE OR REPLACE VIEW `v_doanh_thu_theo_thang` AS
-SELECT YEAR(py.ngay_thanh_toan) AS nam,
-       MONTH(py.ngay_thanh_toan) AS thang,
+CREATE VIEW IF NOT EXISTS `v_doanh_thu_theo_thang` AS
+SELECT CAST(strftime('%Y', py.ngay_thanh_toan) AS INTEGER) AS nam,
+       CAST(strftime('%m', py.ngay_thanh_toan) AS INTEGER) AS thang,
        SUM(CASE WHEN py.status = 'THANH_CONG' THEN py.so_tien ELSE 0 END) AS tong_thanh_toan_thanh_cong,
        SUM(CASE WHEN py.status = 'HOAN_TIEN' THEN py.so_tien ELSE 0 END) AS tong_tien_hoan,
        SUM(CASE
@@ -163,19 +132,15 @@ SELECT YEAR(py.ngay_thanh_toan) AS nam,
        SUM(py.status = 'THANH_CONG') AS so_giao_dich_thanh_cong,
        SUM(py.status = 'HOAN_TIEN') AS so_giao_dich_hoan_tien
 FROM pay py
-GROUP BY YEAR(py.ngay_thanh_toan), MONTH(py.ngay_thanh_toan);
+GROUP BY CAST(strftime('%Y', py.ngay_thanh_toan) AS INTEGER), CAST(strftime('%m', py.ngay_thanh_toan) AS INTEGER);
 
-
--- 5.8 Booking counts by status.
-CREATE OR REPLACE VIEW `v_thong_ke_trang_thai_booking` AS
+CREATE VIEW IF NOT EXISTS `v_thong_ke_trang_thai_booking` AS
 SELECT b.trang_thai,
        COUNT(*) AS so_luong_booking
 FROM booking b
 GROUP BY b.trang_thai;
 
-
--- 5.9 Customer profile and booking/payment history aggregates.
-CREATE OR REPLACE VIEW `v_thong_tin_khach_hang` AS
+CREATE VIEW IF NOT EXISTS `v_thong_tin_khach_hang` AS
 SELECT k.id AS khach_id,
        k.ho_ten,
        k.cccd,
@@ -205,16 +170,14 @@ LEFT JOIN (
     GROUP BY py.khach_id
 ) ps ON ps.khach_id = k.id;
 
-
--- 5.10 Peak-season configurations by room.
-CREATE OR REPLACE VIEW `v_thong_ke_mua_cao_diem` AS
+CREATE VIEW IF NOT EXISTS `v_thong_ke_mua_cao_diem` AS
 SELECT m.id AS mua_cao_diem_id,
        p.id AS phong_id,
        p.so_phong,
        lp.ten AS loai_phong,
        m.tu_ngay,
        m.den_ngay,
-       DATEDIFF(m.den_ngay, m.tu_ngay) + 1 AS so_ngay_ap_dung,
+       CAST(julianday(m.den_ngay) - julianday(m.tu_ngay) AS INTEGER) + 1 AS so_ngay_ap_dung,
        pm.he_so_phu_thu AS he_so_gia,
        lp.gia_co_ban,
        ROUND(lp.gia_co_ban * pm.he_so_phu_thu, 2) AS phu_phi_mua_cao_diem_moi_dem
@@ -222,6 +185,3 @@ FROM muacaodiem m
 JOIN phong_muacaodiem pm ON pm.muacaodiem_id = m.id
 JOIN phong p ON p.id = pm.phong_id
 JOIN loaiphong lp ON lp.id = p.loai_phong_id;
-
-
--- ============================================================================
