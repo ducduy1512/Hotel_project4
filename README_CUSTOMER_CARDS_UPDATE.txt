@@ -1,3 +1,5 @@
+CANH BAO: TAI LIEU PHIEN BAN MYSQL CU. Ban chay hien tai dung SQLite tu khoi tao. Khong chay lenh MySQL trong tai lieu nay de khoi dong project. Xem README.md.
+
 HOTEL PROJECT 5 — FULL PACKAGE (CUSTOMER ROOM TYPE CARDS INCLUDED)
 
 This is the complete project based on the latest ZIP supplied in this conversation.

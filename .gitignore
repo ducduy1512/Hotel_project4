@@ -1,18 +1,16 @@
-﻿# Python cache
-__pycache__/
-*.py[cod]
+
+# Python cache
 
 # Virtual environments
-.venv/
-venv/
 env/
 
-# PyCharm / IDE
-.idea/
+# PyCharm temporary files
 
-# Test, logs & sensitive files
+# Test and log files
 .pytest_cache/
 *.log
+
+# OS files
 .DS_Store
 Thumbs.db
 session.json
@@ -20,3 +18,22 @@ session.json
 .env
 .env.*
 !.env.example
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.idea/
+
+# Local SQLite runtime database (auto-created; never commit personal data)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/.auth_secret
+
+# Local runtime, IDE & cache
+.idea/
+__pycache__/
+*.py[cod]
+.env
+data/*.db
+data/.auth_secret
